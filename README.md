@@ -95,5 +95,3 @@ bash setup.sh --all
 노트
 - Atari 사용 시 `gymnasium[accept-rom-license]` 설치 필요(라이선스 동의)
 - GPU 사용 시 `torch`를 CUDA 빌드로 설치하세요 (conda 채널 권장)
-
-문제가 있거나 추가 예제가 필요하면 알려주세요.
