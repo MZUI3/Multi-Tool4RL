@@ -1,0 +1,22 @@
+# PPO (Schulman et al., 2017)
+algo: ppo
+seed: 0
+env:
+  id: CartPole-v1
+  num_envs: 4
+train:
+  total_steps: 100000
+  eval_interval: 20000
+hparams:
+  lr: 3.0e-4
+  n_steps: 128
+  n_epochs: 10
+  n_minibatches: 4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  hidden_sizes: [64, 64]
+  activation: tanh

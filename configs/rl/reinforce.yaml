@@ -1,0 +1,17 @@
+# REINFORCE with value baseline (Williams, 1992)
+algo: reinforce
+seed: 0
+env:
+  id: CartPole-v1
+  num_envs: 1
+train:
+  total_steps: 100000
+  eval_interval: 20000
+hparams:
+  lr: 1.0e-3
+  gamma: 0.99
+  episodes_per_update: 4
+  use_baseline: true
+  normalize_advantage: true
+  hidden_sizes: [64, 64]
+  activation: tanh

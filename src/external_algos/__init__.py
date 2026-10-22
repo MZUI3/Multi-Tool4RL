@@ -1,1 +1,0 @@
-"""External algorithm plugins package."""
