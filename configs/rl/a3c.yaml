@@ -1,0 +1,18 @@
+# A3C (asynchronous advantage actor-critic) - n_workers threads share one network
+algo: a3c
+seed: 0
+env:
+  id: CartPole-v1
+train:
+  total_steps: 100000
+  eval_interval: 20000
+hparams:
+  lr: 7.0e-4
+  n_workers: 4
+  n_steps: 5
+  gamma: 0.99
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 40.0
+  hidden_sizes: [64, 64]
+  activation: tanh

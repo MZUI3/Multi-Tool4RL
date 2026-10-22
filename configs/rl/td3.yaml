@@ -1,0 +1,21 @@
+# TD3 (Fujimoto et al., 2018) - continuous actions
+algo: td3
+seed: 0
+env:
+  id: Pendulum-v1
+train:
+  total_steps: 30000
+  eval_interval: 5000
+hparams:
+  actor_lr: 1.0e-3
+  critic_lr: 1.0e-3
+  gamma: 0.99
+  tau: 0.005
+  batch_size: 256
+  learning_starts: 1000
+  random_steps: 1000
+  exploration_noise: 0.1
+  policy_delay: 2
+  target_policy_noise: 0.2
+  target_noise_clip: 0.5
+  hidden_sizes: [256, 256]

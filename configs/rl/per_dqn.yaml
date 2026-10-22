@@ -1,0 +1,19 @@
+# Prioritized Experience Replay DQN (Schaul et al., 2016)
+algo: per_dqn
+seed: 0
+env:
+  id: CartPole-v1
+train:
+  total_steps: 50000
+  eval_interval: 10000
+hparams:
+  lr: 1.0e-3
+  buffer_size: 50000
+  batch_size: 64
+  learning_starts: 1000
+  target_update_interval: 500
+  eps_decay_steps: 10000
+  hidden_sizes: [128, 128]
+  prioritized: true
+  per_alpha: 0.6
+  per_beta_start: 0.4

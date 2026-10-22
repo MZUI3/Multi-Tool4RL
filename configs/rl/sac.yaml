@@ -1,0 +1,20 @@
+# SAC (Haarnoja et al., 2018) - continuous actions, automatic entropy tuning
+algo: sac
+seed: 0
+env:
+  id: Pendulum-v1
+train:
+  total_steps: 30000
+  eval_interval: 5000
+hparams:
+  actor_lr: 3.0e-4
+  critic_lr: 3.0e-4
+  alpha_lr: 3.0e-4
+  gamma: 0.99
+  tau: 0.005
+  batch_size: 256
+  learning_starts: 1000
+  random_steps: 1000
+  autotune: true
+  alpha: 0.2
+  hidden_sizes: [256, 256]

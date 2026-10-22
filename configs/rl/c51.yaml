@@ -1,0 +1,20 @@
+# C51 / Categorical DQN (Bellemare et al., 2017)
+# v_min / v_max should bracket the discounted return (CartPole: 0..~100 with gamma=0.99)
+algo: c51
+seed: 0
+env:
+  id: CartPole-v1
+train:
+  total_steps: 50000
+  eval_interval: 10000
+hparams:
+  lr: 1.0e-3
+  buffer_size: 50000
+  batch_size: 64
+  learning_starts: 1000
+  target_update_interval: 500
+  eps_decay_steps: 10000
+  hidden_sizes: [128, 128]
+  atoms: 51
+  v_min: 0.0
+  v_max: 100.0

@@ -1,0 +1,29 @@
+# MATD3 - twin critics, delayed actor, target smoothing (Ackermann et al., 2019)
+algo: matd3
+seed: 0
+device: auto
+env:
+  id: spread          # spread | predator_prey | matrix_game | pz:<module> | smac:<map>
+  kwargs:
+    n_agents: 3
+  num_envs: 1
+train:
+  total_steps: 200000
+  log_interval: 5000
+  eval_interval: 25000
+  eval_episodes: 10
+hparams:
+  actor_lr: 5.0e-4
+  critic_lr: 1.0e-3
+  gamma: 0.95
+  tau: 0.01
+  batch_size: 256
+  buffer_size: 100000
+  learning_starts: 2000
+  gumbel_temperature: 1.0
+  policy_reg: 1.0e-3
+  hidden_sizes: [64, 64]
+  critic_hidden: [128, 128]
+  n_critics: 2
+  policy_delay: 2
+  target_smoothing: true

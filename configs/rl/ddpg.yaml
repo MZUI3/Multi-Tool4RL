@@ -1,0 +1,19 @@
+# DDPG (Lillicrap et al., 2016) - continuous actions
+algo: ddpg
+seed: 0
+env:
+  id: Pendulum-v1
+train:
+  total_steps: 30000
+  eval_interval: 5000
+hparams:
+  actor_lr: 1.0e-3
+  critic_lr: 1.0e-3
+  gamma: 0.99
+  tau: 0.005
+  batch_size: 256
+  buffer_size: 200000
+  learning_starts: 1000
+  random_steps: 1000
+  exploration_noise: 0.1
+  hidden_sizes: [256, 256]
