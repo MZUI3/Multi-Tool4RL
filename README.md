@@ -52,7 +52,7 @@ python tests/test_smoke.py                               # 60개 전부 몇백 �
 
 ## 시뮬레이션 보기
 
-학습된 모델이 환경에서 어떻게 움직이는지 창을 띄워서 보거나, GIF / MP4 / HTML로 저장합니다.
+학습이 끝난 모델을 환경에서 돌려 보여줍니다. 창으로 보거나 GIF / MP4 / HTML로 저장합니다.
 
 ```bash
 python train.py --algo ppo --watch                       # 학습 끝나면 바로 열기
@@ -63,12 +63,12 @@ python watch.py runs/<run_dir> --save ep.html --stochastic --fps 20
 python evaluate.py runs/<run_dir> --watch
 ```
 
-창은 matplotlib으로 만들었습니다. 왼쪽이 환경 화면, 오른쪽에 에피소드/스텝/행동/보상/리턴, 그리고 알고리즘별 진단(DQN 계열은 Q값, 정책 계열은 행동 확률과 가치, MARL은 에이전트×행동 Q/확률 히트맵)과 에피소드 리턴 그래프가 나옵니다.
-키는 `space` 일시정지, `n` 또는 `→` 한 스텝, `r` 리셋, `d` 결정적/확률적 전환, `+`/`-` 속도, `s` 스크린샷, `q` 종료.
+뷰어는 matplotlib 창 하나로 만들었습니다.
 
-HTML로 저장하면 파일 하나에 프레임과 진단 정보가 다 들어가서 브라우저에서 재생하고 스크럽할 수 있습니다. GIF는 pillow, MP4는 ffmpeg가 필요합니다.
-
-렌더링은 환경의 `rgb_array` 렌더러를 먼저 쓰고, 그게 없으면 상태를 보고 직접 그립니다. gymnasium의 classic control은 pygame이 있어야 자체 렌더링이 되는데, 없어도 CartPole, MountainCar, Pendulum, Acrobot은 직접 그리는 쪽으로 넘어갑니다. 내장 환경(BitFlip, PointReach, PixelGrid, Spread, Predator-Prey, Matrix game)도 마찬가지입니다. 다른 환경을 그리려면 `rlzoo/viz/renderers.py`의 `_BY_CLASS`에 함수를 추가하면 됩니다.
+- 왼쪽: 환경 화면. 오른쪽: 에피소드/스텝/행동/보상/리턴, 알고리즘별 진단(DQN 계열은 Q값, 정책 계열은 행동 확률과 가치, MARL은 에이전트×행동 히트맵), 에피소드 리턴 그래프.
+- 키: `space` 일시정지, `n`/`→` 한 스텝, `r` 리셋, `d` 결정적/확률적 전환, `+`/`-` 속도, `s` 스크린샷, `q` 종료.
+- 저장 형식: GIF(pillow), MP4(ffmpeg), HTML. HTML은 프레임과 진단 정보가 파일 하나에 들어가서 브라우저에서 재생하고 스크럽할 수 있습니다.
+- 렌더링: 환경의 `rgb_array` 렌더러를 먼저 쓰고, 없으면 상태를 보고 직접 그립니다. pygame 없이도 CartPole, MountainCar, Pendulum, Acrobot과 내장 환경 전부가 그려집니다. 다른 환경은 `rlzoo/viz/renderers.py`의 `_BY_CLASS`에 함수를 추가합니다.
 
 ## 알고리즘
 
