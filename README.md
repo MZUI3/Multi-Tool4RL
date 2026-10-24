@@ -1,14 +1,37 @@
-# rlzoo — RL 40종 + MARL 20종을 YAML 설정으로 구성하는 PyTorch 프로젝트
+# rlzoo — 강화학습 알고리즘 60종을 YAML 한 장으로 돌리는 PyTorch 프로젝트
 
-단일 에이전트 강화학습(RL) 알고리즘 40개(온라인·오프라인·모방·모델 기반·탐험·순환·목표 조건)와 멀티에이전트 강화학습(MARL)
-알고리즘 20개, 총 60개를 **PyTorch로 직접 구현**했습니다. 외부 RL 라이브러리(SB3, RLlib, PyMARL 등)에 의존하지 않습니다.
-알고리즘·환경·하이퍼파라미터는 모두 YAML 설정 파일 또는 커맨드라인 `--set`으로 바꿀 수 있습니다.
+> **"논문 60편을 직접 구현한, 의존성 없는 RL 실험실"** — 단일 에이전트 40종(온라인 · 오프라인 · 모방 · 모델 기반 · 탐험 · 순환 · 목표 조건)과 멀티에이전트 20종을
+> SB3 · RLlib · PyMARL 같은 외부 RL 라이브러리 없이 PyTorch만으로 구현했습니다. 알고리즘 · 환경 · 하이퍼파라미터는 YAML 또는 `--set key=value`로 바꾸고,
+> 학습이 끝나면 `--watch` 한 줄로 에이전트가 움직이는 모습을 바로 확인할 수 있습니다.
 
-- 필수 의존성: `torch`, `numpy`, `gymnasium`, `pyyaml`, `matplotlib`, `pillow` (시각화)
-- 학습이 끝난 뒤 `--watch` 한 줄로 시뮬레이션을 직접 볼 수 있습니다 (아래 "시뮬레이션 시각화").
-- CV 허브(Mutli-Tool4Vision)와 **같은 하드웨어 가속 모듈**(`rlzoo/common/hwaccel.py`)을 써서 `--device`, `--parallel dp|ddp` 옵션이 동일합니다.
-- MARL 기본 환경(Spread, Predator-Prey, Matrix game)은 numpy로 내장되어 있어 추가 설치가 필요 없습니다.
-- 선택: PettingZoo(MPE 등), SMAC(StarCraft II) 어댑터 포함
+```bash
+pip install -r requirements.txt
+python train.py --list                                      # 60개 알고리즘
+python train.py --algo ppo --watch                          # 학습 후 시뮬레이션 뷰어 열기
+python train.py --algo qmix --env predator_prey             # MARL, 내장 numpy 환경
+python launch_ddp.py --nproc 2 train.py --algo redq         # 2-GPU DDP (rank별 환경 + 그래디언트 평균)
+python watch.py runs/<run_dir> --save episode.html          # 브라우저용 플레이어로 내보내기
+```
+
+## 한눈에 보기
+
+| 항목 | 내용 |
+|---|---|
+| 단일 에이전트 (40) | DQN 계열 10종(Double · Dueling · PER · Noisy · C51 · QR · IQN · Rainbow · Munchausen), 정책 경사·trust region(REINFORCE · A2C · A3C · TRPO · PPO · PPG · IMPALA), 연속 제어(DDPG · TD3 · SAC · TQC · REDQ · DroQ · CrossQ), 순환(DRQN · PPO-GRU), 탐험(RND · ICM), 목표 조건(HER), 모델 기반(MBPO), 오프라인·모방(BC · TD3+BC · CQL · IQL · AWAC · Decision Transformer · GAIL) |
+| 멀티에이전트 (20) | 값 분해(IQL · VDN · QMIX · QTRAN · QPLEX · WQMIX · Qatten), 중앙 critic(COMA · MADDPG · MATD3 · MASAC · FACMAC), 정책 경사(IPPO · MAPPO · HAPPO · MAA2C · IA2C), Transformer(MAT), 통신(CommNet · G2ANet) |
+| 환경 | gymnasium 전부(이미지 관측 · 목표 조건 Dict 관측 포함), 내장 BitFlip / PointReach / PixelGrid, numpy로 짠 MARL 환경 3종, PettingZoo · SMAC 어댑터 |
+| 시각화 | 학습 후 라이브 뷰어(일시정지 · 한 스텝 · 속도 · Q값/행동 확률 패널) + GIF/MP4/HTML 내보내기. pygame 없이도 classic control을 직접 그림 |
+| 하드웨어 | `--device`, `--parallel dp|ddp` — CV 허브([Mutli-Tool4Vision](https://github.com/MZUI3/Mutli-Tool4Vision))와 바이트 단위로 같은 가속 모듈 공유 |
+| 검증 | `tests/test_smoke.py`가 60개 전부를 실행하고, DDP는 학습 종료 시 rank 간 파라미터 일치를 자동 검사 |
+| 의존성 | torch, numpy, gymnasium, pyyaml, matplotlib, pillow |
+
+## 설계 포인트
+
+- **클래스 계층으로 중복 제거**: `OffPolicyAlgo` / `OnPolicyAlgo` / `MAOffPolicyAlgo` / `MAOnPolicyAlgo`가 학습 루프를 제공하므로 알고리즘 하나는 보통 `act` + `update` 100줄 내외입니다. DQN 10종은 구현 하나를 공유하고, REDQ · DroQ · CrossQ는 SAC의 하이퍼파라미터 변형으로 표현됩니다.
+- **하이퍼파라미터 안전장치**: `default_hparams`가 클래스 계층을 따라 병합되고, 존재하지 않는 키를 쓰면 유효한 키 목록과 함께 즉시 실패합니다. 실제 사용된 전체 설정은 `runs/.../config.yaml`에 기록되어 그대로 재현할 수 있습니다.
+- **DDP를 RL에 맞게**: 네트워크를 `forward` 대신 `dist()` · `q_values()`로 호출하는 RL 구조에서는 `DistributedDataParallel` 훅이 걸리지 않으므로, rank마다 환경을 돌리고 optimizer step 직전에 그래디언트를 명시적으로 평균합니다. TRPO의 자연 그래디언트, PPO의 target-KL 조기 종료, HAPPO의 에이전트 순서, n-step 버퍼 게이팅까지 rank 간 일치를 맞췄습니다.
+- **시각화는 알고리즘이 설명한다**: 모든 알고리즘이 `explain(obs)` 훅으로 Q값 · 행동 확률 · 가치를 돌려주고, 뷰어와 HTML 플레이어가 이를 그대로 보여 줍니다.
+- **오프라인 파이프라인**: `collect.py`로 무작위 · 학습된 정책 · 노이즈를 섞은 "medium" 데이터셋을 만들고, 오프라인 알고리즘은 같은 `.npz`를 읽습니다. Decision Transformer는 평가 중 보상을 받아 return-to-go를 갱신합니다.
 
 ## 설치
 
@@ -48,7 +71,7 @@ python train.py --algo rainbow --set hparams.noisy=false hparams.n_step=1   # Ra
 python evaluate.py runs/<run_dir> --episodes 20          # 저장된 모델 평가
 python watch.py runs/<run_dir>                           # 시뮬레이션 뷰어 (아래 참고)
 python plot.py runs/dqn_* runs/rainbow_* --metric eval/return --out compare.png
-python tests/test_smoke.py                               # 60개 전부 짧게 실행해 동작 확인
+python tests/test_smoke.py                               # 60개 전부 짧게 실행해 동작 확인 (60/60 통과)
 python benchmark.py --kind rl                            # 여러 알고리즘 연속 실행 + 결과 표
 python benchmark.py --algos qmix vdn qplex --seeds 0 1 2 --env matrix_game --steps 10000
 ```
