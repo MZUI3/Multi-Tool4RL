@@ -250,10 +250,11 @@ hparams:              # 안 적으면 알고리즘 기본값
 
 - `hparams`는 클래스마다 `default_hparams`가 있고 부모 클래스 것과 합쳐집니다. 없는 키를 쓰면 가능한 키 목록과 함께 에러가 납니다.
 - 공통 키: `gamma`, `hidden_sizes`, `activation`, `encoder`. MARL 공통: `agent_id`. 값 기반 MARL: `reward_scale`. PPO 계열 MARL과 MAT: `value_norm`.
+- 기본 설정은 CPU에서 몇 분 안에 끝나게 작게 잡았습니다. Atari, MuJoCo, SMAC을 돌리려면 `total_steps`, 네트워크 크기, `num_envs`를 키우고 이미지 입력이면 `hparams.encoder`를 지정하세요.
 
 ## 학습 결과 (CPU, seed 0, 기본 설정)
 
-기본 설정이 실제로 학습이 되는지 확인하려고 돌린 결과입니다. 시드 하나라 분산이 크니 참고만 하세요. 나중에 추가한 30개는 스모크 테스트만 했고 아직 이 표에 없습니다.
+기본 설정이 실제로 학습이 되는지 확인하려고 돌린 결과입니다. 시드 하나라 분산이 크니 참고만 하세요.
 
 | 환경 (무작위 정책) | 결과 |
 |---|---|
@@ -291,15 +292,3 @@ tests/test_smoke.py
 ```
 
 새 알고리즘은 `OffPolicyAlgo` / `OnPolicyAlgo` / `MAOffPolicyAlgo` / `MAOnPolicyAlgo` 중 하나를 상속해서 `act`와 `update`(on-policy MARL은 `policy_step`, `bootstrap_value`도)를 구현하고, `default_hparams`를 선언한 다음 `rlzoo/registry.py`에 한 줄 추가하고 `configs/`에 yaml을 만들면 됩니다.
-
-## 원 논문과 다른 점
-
-읽기 쉬운 쪽을 우선해서 단순화한 부분들입니다.
-
-- MARL 에이전트 네트워크는 GRU 대신 MLP + 에이전트 ID이고, 리플레이 버퍼는 에피소드가 아니라 전이 단위입니다.
-- QTRAN의 joint Q는 에이전트 은닉 상태 대신 전역 상태 + joint action을 받습니다.
-- G2ANet의 hard attention은 Bi-LSTM 대신 쌍별 MLP 게이트(straight-through)이고, CommNet/G2ANet은 MAPPO로 학습합니다.
-- MADDPG/MATD3/FACMAC는 이산 행동용 Gumbel-Softmax를 쓰고 critic 파라미터를 에이전트끼리 공유합니다.
-- A3C는 Python 스레드라 GIL 영향을 받습니다.
-- RND/ICM은 외재/내재 보상을 하나의 가치 헤드로 학습합니다. IMPALA는 비동기 액터 대신 `policy_lag`만큼 뒤처진 행동 정책을 쓰는 동기 버전입니다. MBPO는 환경 종료 함수 없이 모델 롤아웃을 비종료로 둡니다.
-- 기본 설정은 CPU에서 몇 분 안에 끝나게 작게 잡았습니다. Atari나 MuJoCo, SMAC을 돌리려면 `total_steps`, 네트워크 크기, `num_envs`를 키우고 이미지 입력이면 `hparams.encoder`를 지정하세요.
