@@ -1,0 +1,20 @@
+# FACMAC (Peng et al., 2021) - factored critics + QMIX mixer, centralized policy gradient
+algo: facmac
+seed: 0
+env:
+  id: spread
+  kwargs:
+    n_agents: 3
+train:
+  total_steps: 200000
+  log_interval: 5000
+  eval_interval: 25000
+  eval_episodes: 10
+hparams:
+  actor_lr: 5.0e-4
+  critic_lr: 1.0e-3
+  batch_size: 256
+  buffer_size: 100000
+  learning_starts: 2000
+  mixer_embed_dim: 32
+  hidden_sizes: [64, 64]

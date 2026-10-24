@@ -24,8 +24,8 @@ class COMA(MAOnPolicyAlgo):
                            target_update_interval=20, max_grad_norm=10.0, critic_hidden=[128, 128],
                            normalize_advantage=True)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         hp = self.hp
         self.actor = mlp(self.obs_dim, self.A, hp["hidden_sizes"], hp["activation"]).to(device)
         critic_in = self.state_dim + spec.obs_dim + self.n + self.n * self.A
@@ -48,6 +48,10 @@ class COMA(MAOnPolicyAlgo):
         d = self.dist(self.t(obs), self.t(avail))
         a = d.probs.argmax(-1) if deterministic else d.sample()
         return a.cpu().numpy()
+
+    @torch.no_grad()
+    def explain(self, obs, state, avail):
+        return {"probs": self.dist(self.t(obs[None]), self.t(avail[None])).probs[0].cpu().numpy()}
 
     def critic_inputs(self, obs, state, actions):
         B = obs.shape[0]

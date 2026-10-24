@@ -1,0 +1,20 @@
+# PPO + Intrinsic Curiosity Module (Pathak et al., 2017)
+algo: icm
+seed: 0
+env:
+  id: MountainCar-v0
+  num_envs: 8
+train:
+  total_steps: 200000
+  eval_interval: 20000
+hparams:
+  lr: 3.0e-4
+  n_steps: 128
+  n_epochs: 4
+  n_minibatches: 4
+  int_coef: 0.01
+  beta: 0.2
+  feat_dim: 32
+  aux_lr: 1.0e-3
+  hidden_sizes: [64, 64]
+  activation: tanh

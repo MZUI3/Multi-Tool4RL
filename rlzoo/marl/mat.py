@@ -18,8 +18,8 @@ class MAT(MAOnPolicyAlgo):
                            ent_coef=0.01, vf_coef=1.0, max_grad_norm=10.0, normalize_advantage=True, embed_dim=64,
                            n_heads=2, n_blocks=1, value_norm=True)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         hp = self.hp
         self.model = MATNetwork(self.obs_dim, self.A, self.n, hp["embed_dim"], hp["n_heads"], hp["n_blocks"]).to(device)
         self.opt = torch.optim.Adam(self.model.parameters(), lr=hp["lr"], eps=1e-5)
@@ -62,6 +62,11 @@ class MAT(MAOnPolicyAlgo):
     def policy_step(self, obs, state, avail):
         actions, logp, values = self.sample(obs, avail)
         return actions, logp, self.denorm(values)
+
+    @torch.no_grad()
+    def explain(self, obs, state, avail):
+        _, values = self.model.encode(self.agent_inputs(self.t(obs[None])))
+        return {"value": float(self.denorm(values)[0].mean())}
 
     def bootstrap_value(self, obs, state, avail):
         return self.denorm(self.model.encode(self.agent_inputs(obs))[1])

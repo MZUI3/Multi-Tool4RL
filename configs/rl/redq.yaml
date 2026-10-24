@@ -1,0 +1,17 @@
+# REDQ (Chen et al., 2021) - 10 critics, random pair for targets, UTD ratio 20
+algo: redq
+seed: 0
+env:
+  id: Pendulum-v1
+train:
+  total_steps: 15000
+  eval_interval: 5000
+hparams:
+  n_critics: 10
+  target_subset: 2
+  gradient_steps: 20
+  policy_delay: 20
+  batch_size: 256
+  learning_starts: 1000
+  random_steps: 1000
+  hidden_sizes: [256, 256]

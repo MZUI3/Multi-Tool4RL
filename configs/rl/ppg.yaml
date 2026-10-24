@@ -1,0 +1,20 @@
+# Phasic Policy Gradient (Cobbe et al., 2020)
+algo: ppg
+seed: 0
+env:
+  id: CartPole-v1
+  num_envs: 8
+train:
+  total_steps: 100000
+  eval_interval: 20000
+hparams:
+  lr: 3.0e-4
+  n_steps: 64
+  n_epochs: 1
+  n_minibatches: 4
+  n_policy_iters: 8
+  aux_epochs: 6
+  aux_minibatches: 8
+  beta_clone: 1.0
+  hidden_sizes: [64, 64]
+  activation: tanh

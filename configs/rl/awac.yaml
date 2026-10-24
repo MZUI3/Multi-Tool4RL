@@ -1,0 +1,16 @@
+# AWAC (Nair et al., 2020) - offline (advantage-weighted actor-critic)
+algo: awac
+seed: 0
+env:
+  id: CartPole-v1
+dataset: auto
+dataset_steps: 20000
+train:
+  total_steps: 10000
+  log_interval: 1000
+  eval_interval: 2000
+hparams:
+  lam: 1.0
+  batch_size: 256
+  lr: 3.0e-4
+  hidden_sizes: [256, 256]

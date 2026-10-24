@@ -1,0 +1,18 @@
+# IMPALA / V-trace (Espeholt et al., 2018), synchronous: behaviour policy lags the learner by `policy_lag` updates
+algo: impala
+seed: 0
+env:
+  id: CartPole-v1
+  num_envs: 8
+train:
+  total_steps: 100000
+  eval_interval: 20000
+hparams:
+  lr: 6.0e-4
+  n_steps: 20
+  policy_lag: 2
+  rho_bar: 1.0
+  c_bar: 1.0
+  ent_coef: 0.01
+  vf_coef: 0.5
+  hidden_sizes: [64, 64]

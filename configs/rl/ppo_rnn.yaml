@@ -1,0 +1,18 @@
+# Recurrent PPO (GRU core); minibatches are whole per-env rollouts
+algo: ppo_rnn
+seed: 0
+env:
+  id: CartPole-v1
+  num_envs: 8
+train:
+  total_steps: 100000
+  eval_interval: 20000
+hparams:
+  lr: 3.0e-4
+  n_steps: 64
+  n_epochs: 4
+  n_minibatches: 4
+  rnn_hidden: 64
+  clip_range: 0.2
+  hidden_sizes: [64]
+  activation: tanh

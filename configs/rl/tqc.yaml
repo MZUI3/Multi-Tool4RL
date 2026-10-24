@@ -1,0 +1,16 @@
+# Truncated Quantile Critics (Kuznetsov et al., 2020) - continuous actions
+algo: tqc
+seed: 0
+env:
+  id: Pendulum-v1
+train:
+  total_steps: 30000
+  eval_interval: 5000
+hparams:
+  n_critics: 5
+  n_quantiles: 25
+  top_quantiles_to_drop: 2
+  batch_size: 256
+  learning_starts: 1000
+  random_steps: 1000
+  hidden_sizes: [256, 256]

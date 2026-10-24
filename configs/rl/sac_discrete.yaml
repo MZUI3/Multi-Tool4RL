@@ -1,0 +1,17 @@
+# Discrete SAC (Christodoulou, 2019)
+algo: sac_discrete
+seed: 0
+env:
+  id: CartPole-v1
+train:
+  total_steps: 50000
+  eval_interval: 10000
+hparams:
+  actor_lr: 3.0e-4
+  critic_lr: 3.0e-4
+  alpha_lr: 3.0e-4
+  batch_size: 64
+  buffer_size: 50000
+  learning_starts: 1000
+  target_entropy_ratio: 0.98
+  hidden_sizes: [128, 128]

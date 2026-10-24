@@ -1,0 +1,16 @@
+# CrossQ (Bhatt et al., 2024) - batch-renorm critics, no target networks
+algo: crossq
+seed: 0
+env:
+  id: Pendulum-v1
+train:
+  total_steps: 30000
+  eval_interval: 5000
+hparams:
+  policy_delay: 3
+  critic_lr: 1.0e-3
+  actor_lr: 1.0e-3
+  batch_size: 256
+  learning_starts: 1000
+  random_steps: 1000
+  hidden_sizes: [256, 256]

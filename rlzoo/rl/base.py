@@ -7,12 +7,23 @@ import torch.nn.functional as F
 
 from rlzoo.common.base import Algorithm
 from rlzoo.common.buffers import ReplayBuffer, compute_gae
-from rlzoo.common.nets import ActorCritic
+from rlzoo.common.nets import ActorCritic, ObsEncoder
 
 
 class RLAlgorithm(Algorithm):
     kind = "rl"
-    default_hparams = dict(gamma=0.99, hidden_sizes=[64, 64], activation="relu")
+    default_hparams = dict(
+        gamma=0.99,
+        hidden_sizes=[64, 64],
+        activation="relu",
+        encoder="auto",  # mlp | auto | nature_cnn | small_cnn | impala_cnn (CNNs need image observations)
+        cnn_features=256,
+    )
+
+    def make_encoder(self):
+        """A fresh observation encoder for one network (None for plain vector observations)."""
+        enc = ObsEncoder(self.spec, self.hp["encoder"], int(self.hp["cnn_features"]))
+        return None if enc.kind == "mlp" else enc
 
 
 class OffPolicyAlgo(RLAlgorithm):
@@ -23,16 +34,19 @@ class OffPolicyAlgo(RLAlgorithm):
         train_freq=1,  # vector-env steps between update rounds
         gradient_steps=1,  # gradient updates per round
         random_steps=0,  # env steps with uniformly random actions
+        her=False,  # Hindsight Experience Replay (needs a goal-conditioned env: BitFlip-v0, PointReach-v0, ...)
+        her_k=4,  # relabelled copies per transition
+        her_strategy="future",  # future | final | episode
     )
 
     def buffer_fields(self):
         spec = self.spec
         act = ((), np.int64) if spec.discrete else ((spec.act_dim,), np.float32)
         return {
-            "obs": ((spec.obs_dim,), np.float32),
+            "obs": ((spec.obs_dim,), spec.obs_dtype),
             "action": act,
             "reward": ((), np.float32),
-            "next_obs": ((spec.obs_dim,), np.float32),
+            "next_obs": ((spec.obs_dim,), spec.obs_dtype),
             "done": ((), np.float32),
             "discount": ((), np.float32),
         }
@@ -44,12 +58,50 @@ class OffPolicyAlgo(RLAlgorithm):
         self.buffer.add(obs=obs, action=action, reward=reward, next_obs=next_obs, done=float(terminated),
                         discount=self.hp["gamma"])
 
+    # ---------------------------------------------------------------- HER
+    def her_store(self, env_idx, obs, action, reward, next_obs, terminated, done):
+        """Buffer an episode and, when it ends, store it plus `her_k` goal-relabelled copies per step."""
+        eps = self._her_episodes
+        eps[env_idx].append((obs, action, reward, next_obs, terminated))
+        if not done:
+            return
+        episode, eps[env_idx] = eps[env_idx], []
+        T, g, k, strategy = len(episode), self.spec.goal_dim, int(self.hp["her_k"]), self.hp["her_strategy"]
+        for t, (o, a, r, o2, term) in enumerate(episode):
+            self.store(env_idx, o, a, r, o2, term, t == T - 1)
+        for t, (o, a, r, o2, term) in enumerate(episode):
+            for _ in range(k):
+                if strategy == "final":
+                    j = T - 1
+                elif strategy == "episode":
+                    j = np.random.randint(0, T)
+                else:  # future
+                    j = np.random.randint(t, T)
+                new_goal = episode[j][3][-2 * g:-g]  # achieved goal after step j
+                o_new, o2_new = o.copy(), o2.copy()
+                o_new[-g:] = new_goal
+                o2_new[-g:] = new_goal
+                r_new = float(self._compute_reward(o2_new[-2 * g:-g][None], new_goal[None])[0])
+                success = r_new > r_new - 1 and r_new >= 0.0  # sparse envs: 0 on success, negative otherwise
+                # each relabelled step is pushed as its own (truncated) episode so n-step chains never mix goals
+                self.store(env_idx, o_new, a, r_new, o2_new, bool(success), True)
+
     def update(self):
         raise NotImplementedError
 
     def train(self, venv, total_steps):
         hp = self.hp
+        use_her = bool(hp["her"])
+        if use_her:
+            if self.spec.goal_dim <= 0:
+                raise ValueError("her=true needs a goal-conditioned env with a Dict observation "
+                                 "(observation / achieved_goal / desired_goal), e.g. BitFlip-v0 or PointReach-v0")
+            self._her_episodes = [[] for _ in range(venv.num_envs)]
+            self._compute_reward = venv.compute_reward
+        store = self.her_store if use_her else self.store
         obs = venv.reset()
+        if hasattr(self, "reset_hidden"):
+            self.reset_hidden(venv.num_envs)
         it = 0
         while self.global_step < total_steps:
             if self.global_step < hp["random_steps"]:
@@ -60,13 +112,16 @@ class OffPolicyAlgo(RLAlgorithm):
             for i in range(venv.num_envs):
                 done = bool(terms[i] or truncs[i])
                 real_next = info["final_obs"][i] if done else next_obs[i]
-                self.store(i, obs[i], actions[i], rewards[i], real_next, bool(terms[i]), done)
+                store(i, obs[i], actions[i], rewards[i], real_next, bool(terms[i]), done)
+            if hasattr(self, "reset_hidden"):
+                self.mask_hidden(np.logical_or(terms, truncs))
             obs = next_obs
-            self.global_step += venv.num_envs
+            self.global_step += venv.num_envs * self.step_scale
             it += 1
             self.record_episodes(info["episodes"])
-            if (self.global_step >= hp["learning_starts"] and it % int(hp["train_freq"]) == 0
-                    and len(self.buffer) >= hp["batch_size"]):
+            ready = (self.global_step >= hp["learning_starts"] and it % int(hp["train_freq"]) == 0
+                     and len(self.buffer) >= hp["batch_size"])
+            if self.agree(ready):
                 for _ in range(int(hp["gradient_steps"])):
                     self.train_metrics = self.update()
             self.maybe_log()
@@ -86,11 +141,15 @@ class OnPolicyAlgo(RLAlgorithm):
         ortho_init=True,
     )
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         hp = self.hp
-        self.ac = ActorCritic(spec.obs_dim, spec, hp["hidden_sizes"], hp["activation"], hp["log_std_init"],
-                              hp["ortho_init"]).to(device)
+        self.ac = self.build_actor_critic().to(device)
+
+    def build_actor_critic(self):
+        hp = self.hp
+        return ActorCritic(self.spec.obs_dim, self.spec, hp["hidden_sizes"], hp["activation"], hp["log_std_init"],
+                           hp["ortho_init"], encoder_fn=self.make_encoder)
 
     def networks(self):
         return {"ac": self.ac}
@@ -100,6 +159,10 @@ class OnPolicyAlgo(RLAlgorithm):
         dist = self.ac.dist(self.t(obs))
         a = self.ac.mode(dist) if deterministic else dist.sample()
         return a.cpu().numpy()
+
+    def reward_hook(self, obs, actions, next_obs, rewards):
+        """Hook for intrinsic-reward methods (RND / ICM); returns the rewards actually used for training."""
+        return rewards
 
     def collect_rollout(self, ac, venv, obs, n_steps):
         """Collect n_steps x num_envs transitions with policy `ac`; returns (flat batch, last obs, episodes)."""
@@ -117,6 +180,10 @@ class OnPolicyAlgo(RLAlgorithm):
             a_np = action.cpu().numpy()
             next_obs, rewards, terms, truncs, info = venv.step(a_np)
             rewards = rewards.astype(np.float32).copy()
+            true_next = next_obs
+            if any(f is not None for f in info["final_obs"]):
+                true_next = np.stack([f if f is not None else n for f, n in zip(info["final_obs"], next_obs)])
+            rewards = self.reward_hook(obs, a_np, true_next, rewards)
             for i in range(E):  # bootstrap time-limit truncations
                 if truncs[i] and not terms[i]:
                     with torch.no_grad():
@@ -159,7 +226,19 @@ class OnPolicyAlgo(RLAlgorithm):
         obs = venv.reset()
         while self.global_step < total_steps:
             batch, obs, episodes = self.collect_rollout(self.ac, venv, obs, self.hp["n_steps"])
-            self.global_step += int(self.hp["n_steps"]) * venv.num_envs
+            self.global_step += int(self.hp["n_steps"]) * venv.num_envs * self.step_scale
             self.record_episodes(episodes)
             self.train_metrics = self.update(self.to_torch(batch))
             self.maybe_log()
+
+    @torch.no_grad()
+    def explain(self, obs):
+        obs_t = self.t(np.asarray(obs)[None])
+        dist = self.ac.dist(obs_t)
+        out = {"value": float(self.ac.value(obs_t)[0])}
+        if self.ac.discrete:
+            out["probs"] = dist.probs[0].cpu().numpy()
+        else:
+            out["mean"] = dist.mean[0].cpu().numpy()
+            out["std"] = dist.stddev[0].cpu().numpy()
+        return out

@@ -12,8 +12,8 @@ class PPO(OnPolicyAlgo):
     default_hparams = dict(lr=3e-4, n_steps=128, n_epochs=10, n_minibatches=4, clip_range=0.2, clip_vloss=False,
                            target_kl=0.0, ent_coef=0.0, vf_coef=0.5, max_grad_norm=0.5)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         self.opt = torch.optim.Adam(self.ac.parameters(), lr=self.hp["lr"], eps=1e-5)
 
     def update(self, b):
@@ -51,6 +51,8 @@ class PPO(OnPolicyAlgo):
                 stats["entropy"].append(entropy.item())
                 stats["approx_kl"].append(approx_kl)
                 stats["clip_frac"].append(((ratio - 1).abs() > clip).float().mean().item())
-            if hp["target_kl"] and np.mean(stats["approx_kl"][-int(hp["n_minibatches"]):]) > hp["target_kl"]:
-                break
+            if hp["target_kl"]:
+                kl = self.reduce_mean(float(np.mean(stats["approx_kl"][-int(hp["n_minibatches"]):])))
+                if kl > hp["target_kl"]:
+                    break
         return {k: float(np.mean(v)) for k, v in stats.items()}

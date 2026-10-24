@@ -47,8 +47,8 @@ class TRPO(OnPolicyAlgo):
     default_hparams = dict(n_steps=512, max_kl=0.01, damping=0.1, cg_iters=10, backtrack_iters=10,
                            backtrack_coef=0.5, vf_lr=1e-3, vf_iters=5, vf_minibatches=4)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         self.vf_opt = torch.optim.Adam(self.ac.v.parameters(), lr=self.hp["vf_lr"])
 
     def _detached_dist(self, obs):
@@ -67,18 +67,20 @@ class TRPO(OnPolicyAlgo):
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
         old_dist = self._detached_dist(obs)
 
+        reduce = self.reduce_mean  # averages over DDP ranks (identity otherwise)
+
         def surrogate():
-            return ((self.ac.dist(obs).log_prob(actions) - b["logp"]).exp() * adv).mean()
+            return reduce(((self.ac.dist(obs).log_prob(actions) - b["logp"]).exp() * adv).mean())
 
         def mean_kl():
-            return kl_divergence(old_dist, self.ac.dist(obs)).mean()
+            return reduce(kl_divergence(old_dist, self.ac.dist(obs)).mean())
 
         def fvp(v):
-            g = _flat_grad(mean_kl(), params, create_graph=True)
-            return _flat_grad(g @ v, params) + hp["damping"] * v
+            g = _flat_grad(kl_divergence(old_dist, self.ac.dist(obs)).mean(), params, create_graph=True)
+            return reduce(_flat_grad(g @ v, params)) + hp["damping"] * v
 
         loss = surrogate()
-        g = _flat_grad(loss, params)
+        g = reduce(_flat_grad(((self.ac.dist(obs).log_prob(actions) - b["logp"]).exp() * adv).mean(), params))
         step_dir = _conjugate_gradient(fvp, g, int(hp["cg_iters"]))
         shs = 0.5 * (step_dir @ fvp(step_dir))
         full_step = step_dir / torch.sqrt(shs / hp["max_kl"] + 1e-10)

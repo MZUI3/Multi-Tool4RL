@@ -11,6 +11,7 @@ from torch.distributions import Categorical
 from rlzoo.common.nets import mlp
 from rlzoo.common.utils import masked_logits, soft_update
 from rlzoo.marl.base import MAOffPolicyAlgo
+from rlzoo.marl.mixers import QMixer
 
 
 class MADDPG(MAOffPolicyAlgo):
@@ -26,8 +27,8 @@ class MADDPG(MAOffPolicyAlgo):
                            buffer_size=100_000, learning_starts=2_000, critic_hidden=[128, 128], policy_reg=1e-3,
                            max_grad_norm=0.5, n_critics=1, policy_delay=1, target_smoothing=False)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         hp = self.hp
         self.actor = mlp(self.obs_dim, self.A, hp["hidden_sizes"], hp["activation"]).to(device)
         self.target_actor = copy.deepcopy(self.actor)
@@ -53,6 +54,11 @@ class MADDPG(MAOffPolicyAlgo):
         _, logits = self.logits(self.actor, self.t(obs), self.t(avail))
         a = logits.argmax(-1) if deterministic else Categorical(logits=logits).sample()
         return a.cpu().numpy()
+
+    @torch.no_grad()
+    def explain(self, obs, state, avail):
+        _, logits = self.logits(self.actor, self.t(obs[None]), self.t(avail[None]))
+        return {"probs": torch.softmax(logits, -1)[0].cpu().numpy()}
 
     def q(self, critic, state, joint):
         """state (B, s), joint one-hot actions per critic-agent (B, n, n, A) -> (B, n)"""
@@ -90,6 +96,58 @@ class MADDPG(MAOffPolicyAlgo):
             self._actor_loss = actor_loss.item()
             soft_update(self.target_actor, self.actor, hp["tau"])
             soft_update(self.target_critics, self.critics, hp["tau"])
+        return {"critic_loss": critic_loss.item(), "actor_loss": self._actor_loss}
+
+
+class FACMAC(MADDPG):
+    """FACMAC (Peng et al., 2021): factored critics Q_i(o_i, u_i) mixed by a QMIX hypernetwork into Q_tot, and a
+    centralized policy gradient where *all* agents' actions come from the current policies (straight-through
+    Gumbel-Softmax for discrete actions)."""
+
+    name = "facmac"
+    default_hparams = dict(mixer_embed_dim=32, hypernet_embed=64, n_critics=1)
+
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        hp = self.resolve_hparams(cfg.get("hparams") or {})
+        self.mixer = QMixer(spec.n_agents, spec.state_dim, hp["mixer_embed_dim"], hp["hypernet_embed"]).to(device)
+        self.target_mixer = copy.deepcopy(self.mixer)
+        super().__init__(spec, cfg, device, logger, accel)
+        n_in = self.obs_dim + self.A
+        self.critics = nn.ModuleList([mlp(n_in, 1, hp["critic_hidden"], hp["activation"])]).to(device)
+        self.target_critics = copy.deepcopy(self.critics)
+        self.critic_opt = torch.optim.Adam(list(self.critics.parameters()) + list(self.mixer.parameters()), lr=hp["critic_lr"])
+
+    def networks(self):
+        return {"actor": self.actor, "critics": self.critics, "mixer": self.mixer}
+
+    def q_tot(self, critic, mixer, obs, state, joint):
+        """obs (B, n, d), joint one-hot (B, n, A) -> mixed Q_tot (B,)"""
+        qs = critic(torch.cat([self.agent_inputs(obs), joint], -1)).squeeze(-1)  # (B, n)
+        return mixer(qs, state)
+
+    def update(self):
+        hp = self.hp
+        _, batch = self.buffer.sample(int(hp["batch_size"]))
+        b = self.to_torch(batch)
+        with torch.no_grad():
+            _, next_logits = self.logits(self.target_actor, b["next_obs"], b["next_avail"])
+            next_joint = F.one_hot(next_logits.argmax(-1), self.A).float()
+            y = b["reward"] + hp["gamma"] * (1 - b["done"]) * self.q_tot(self.target_critics[0], self.target_mixer,
+                                                                        b["next_obs"], b["next_state"], next_joint)
+        joint = F.one_hot(b["actions"], self.A).float()
+        critic_loss = F.mse_loss(self.q_tot(self.critics[0], self.mixer, b["obs"], b["state"], joint), y)
+        self.clip_and_step(self.critic_opt, critic_loss, list(self.critics.parameters()) + list(self.mixer.parameters()),
+                           hp["max_grad_norm"])
+        self.n_updates += 1
+        if self.n_updates % int(hp["policy_delay"]) == 0:
+            raw, logits = self.logits(self.actor, b["obs"], b["avail"])
+            pi = F.gumbel_softmax(logits, tau=hp["gumbel_temperature"], hard=True)
+            actor_loss = -self.q_tot(self.critics[0], self.mixer, b["obs"], b["state"], pi).mean() + hp["policy_reg"] * (raw ** 2).mean()
+            self.clip_and_step(self.actor_opt, actor_loss, self.actor.parameters(), hp["max_grad_norm"])
+            self._actor_loss = actor_loss.item()
+            soft_update(self.target_actor, self.actor, hp["tau"])
+            soft_update(self.target_critics, self.critics, hp["tau"])
+            soft_update(self.target_mixer, self.mixer, hp["tau"])
         return {"critic_loss": critic_loss.item(), "actor_loss": self._actor_loss}
 
 

@@ -1,6 +1,6 @@
 """Runs every algorithm for a few hundred steps on its default config (no learning check).
 
-  python tests/test_smoke.py            # all 30
+  python tests/test_smoke.py            # all algorithms
   python tests/test_smoke.py qmix ppo   # a subset
   pytest tests/                         # same, if pytest is installed
 """
@@ -36,6 +36,8 @@ def smoke(name: str, out_dir: str) -> float:
         overrides += ["hparams.learning_starts=100"]
     if "batch_size" in hp:
         overrides += ["hparams.batch_size=32"]
+    if "dataset" in cfg:  # offline / imitation: record a tiny random dataset on the fly
+        overrides += ["dataset=auto", "dataset_steps=1500"]
     cfg = apply_overrides(cfg, overrides)
     _, final = run(cfg, run_dir=str(Path(out_dir) / name), verbose=False)
     return final["return"]

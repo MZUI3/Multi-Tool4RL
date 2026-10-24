@@ -11,13 +11,25 @@ import yaml
 _NUM_RE = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
 
 DEFAULT_TRAIN = dict(
-    total_steps=100_000,  # environment steps (vector env steps x num_envs)
+    total_steps=100_000,  # environment steps (vector env steps x num_envs x DDP ranks)
     log_interval=2_000,
     eval_interval=10_000,  # 0 disables periodic evaluation
     eval_episodes=5,
     save_dir="runs",
     tensorboard=False,
     save_model=True,
+)
+
+# Hardware acceleration (same options as the CV hub, see rlzoo/common/hwaccel.py).
+# `device` at the top level of a config is an alias for accel.device.
+DEFAULT_ACCEL = dict(
+    parallel="none",  # none | dp | ddp
+    device="auto",
+    gpu_ids=None,
+    sync_bn=False,
+    backend=None,
+    master_addr="127.0.0.1",
+    master_port=29500,
 )
 
 
@@ -66,7 +78,11 @@ def finalize(cfg: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("config needs an 'algo' key")
     cfg["algo"] = str(cfg["algo"]).lower()
     cfg.setdefault("seed", 0)
-    cfg.setdefault("device", "auto")
+    accel = {**DEFAULT_ACCEL, **(cfg.get("accel") or {})}
+    if "device" in cfg and not (cfg.get("accel") or {}).get("device"):
+        accel["device"] = cfg["device"]
+    cfg["accel"] = accel
+    cfg["device"] = accel["device"]
     env = cfg.setdefault("env", {})
     if "id" not in env:
         raise ValueError("config needs env.id")

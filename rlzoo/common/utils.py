@@ -74,7 +74,7 @@ def to_torch(batch: Dict[str, np.ndarray], device: torch.device) -> Dict[str, to
     out = {}
     for k, v in batch.items():
         v = np.asarray(v)
-        dtype = torch.long if np.issubdtype(v.dtype, np.integer) else torch.float32
+        dtype = torch.long if (np.issubdtype(v.dtype, np.integer) and v.dtype != np.uint8) else torch.float32
         out[k] = torch.as_tensor(v, dtype=dtype, device=device)
     return out
 

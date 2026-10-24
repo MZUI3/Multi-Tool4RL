@@ -1,11 +1,14 @@
-# core (all 30 algorithms + built-in MARL envs)
+# core (all 60 algorithms + built-in envs + visualiser)
 torch>=2.0
 numpy>=1.24
 gymnasium>=0.29
 pyyaml>=6.0
+matplotlib>=3.7     # plot.py, watch.py (live viewer / fallback renderers)
+pillow>=9.0         # watch.py GIF / HTML export
 
 # optional tools
-matplotlib          # plot.py
+# pygame            # gymnasium's own rgb_array renderer for classic control (otherwise rlzoo draws the state itself)
+# ffmpeg (system)   # watch.py --save episode.mp4
 # tensorboard       # train.tensorboard: true
 # pytest            # pytest tests/
 
