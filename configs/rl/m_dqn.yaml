@@ -1,0 +1,19 @@
+# Munchausen DQN (Vieillard et al., 2020)
+algo: m_dqn
+seed: 0
+env:
+  id: CartPole-v1
+train:
+  total_steps: 50000
+  eval_interval: 10000
+hparams:
+  lr: 1.0e-3
+  buffer_size: 50000
+  batch_size: 64
+  learning_starts: 1000
+  target_update_interval: 500
+  eps_decay_steps: 10000
+  m_alpha: 0.9
+  m_tau: 0.03
+  m_clip: -1.0
+  hidden_sizes: [128, 128]

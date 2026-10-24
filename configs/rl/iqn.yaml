@@ -1,0 +1,20 @@
+# Implicit Quantile Networks (Dabney et al., 2018)
+algo: iqn
+seed: 0
+env:
+  id: CartPole-v1
+train:
+  total_steps: 50000
+  eval_interval: 10000
+hparams:
+  lr: 1.0e-3
+  buffer_size: 50000
+  batch_size: 64
+  learning_starts: 1000
+  target_update_interval: 500
+  eps_decay_steps: 10000
+  n_taus: 8
+  n_target_taus: 8
+  n_policy_taus: 32
+  n_cos: 64
+  hidden_sizes: [128, 128]

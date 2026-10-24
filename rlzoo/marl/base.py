@@ -13,8 +13,8 @@ class MAAlgorithm(Algorithm):
     default_hparams = dict(gamma=0.99, hidden_sizes=[64, 64], activation="relu",
                            agent_id=True)  # append a one-hot agent id to each agent's observation
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         self.n = spec.n_agents
         self.A = spec.n_actions
         self.state_dim = spec.state_dim
@@ -65,11 +65,12 @@ class MAOffPolicyAlgo(MAAlgorithm):
                 self.buffer.add(obs=obs[e], state=state[e], avail=avail[e], actions=actions[e], reward=rewards[e],
                                 next_obs=o2, next_state=s2, next_avail=a2, done=float(terms[e]))
             obs, state, avail = nobs, nstate, navail
-            self.global_step += venv.num_envs
+            self.global_step += venv.num_envs * self.step_scale
             it += 1
             self.record_episodes(info["episodes"])
-            if (self.global_step >= hp["learning_starts"] and it % int(hp["train_freq"]) == 0
-                    and len(self.buffer) >= hp["batch_size"]):
+            ready = (self.global_step >= hp["learning_starts"] and it % int(hp["train_freq"]) == 0
+                     and len(self.buffer) >= hp["batch_size"])
+            if self.agree(ready):
                 for _ in range(int(hp["gradient_steps"])):
                     self.train_metrics = self.update()
             self.maybe_log()
@@ -125,7 +126,7 @@ class MAOnPolicyAlgo(MAAlgorithm):
         carry = venv.reset()
         while self.global_step < total_steps:
             data, carry, episodes = self.collect(venv, carry)
-            self.global_step += int(self.hp["n_steps"]) * venv.num_envs
+            self.global_step += int(self.hp["n_steps"]) * venv.num_envs * self.step_scale
             self.record_episodes(episodes)
             self.train_metrics = self.update(data)
             self.maybe_log()

@@ -1,0 +1,17 @@
+# DroQ (Hiraoka et al., 2022) - dropout + LayerNorm critics at UTD ratio 20
+algo: droq
+seed: 0
+env:
+  id: Pendulum-v1
+train:
+  total_steps: 15000
+  eval_interval: 5000
+hparams:
+  critic_dropout: 0.01
+  critic_layer_norm: true
+  gradient_steps: 20
+  policy_delay: 20
+  batch_size: 256
+  learning_starts: 1000
+  random_steps: 1000
+  hidden_sizes: [256, 256]

@@ -26,8 +26,8 @@ class MAPPO(MAOnPolicyAlgo):
                            n_minibatches=2, ent_coef=0.01, max_grad_norm=10.0, normalize_advantage=True,
                            value_clip=0.2, value_norm=True)  # value_norm: running return normalisation
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         hp = self.hp
         self.actor = self.build_actor().to(device)
         critic_in = (self.state_dim + (self.n if hp["agent_id"] else 0)) if self.critic_type == "central" \
@@ -69,6 +69,11 @@ class MAPPO(MAOnPolicyAlgo):
         d = self.dist(obs, avail)
         a = d.sample()
         return a, d.log_prob(a), self.real_values(obs, state)
+
+    @torch.no_grad()
+    def explain(self, obs, state, avail):
+        o, s, av = self.t(obs[None]), self.t(state[None]), self.t(avail[None])
+        return {"probs": self.dist(o, av).probs[0].cpu().numpy(), "value": float(self.real_values(o, s)[0].mean())}
 
     def bootstrap_value(self, obs, state, avail):
         return self.real_values(obs, state)
@@ -131,6 +136,32 @@ class MAPPO(MAOnPolicyAlgo):
         return {k: float(np.mean(v)) for k, v in stats.items()}
 
 
+class MAA2C(MAPPO):
+    """Multi-agent A2C (Papoudakis et al., 2021 benchmark): MAPPO's networks with the plain advantage
+    actor-critic loss (single pass, no clipping)."""
+
+    name = "maa2c"
+    default_hparams = dict(n_epochs=1, n_minibatches=1, n_steps=10, lr=5e-4, ent_coef=0.01)
+
+    def update(self, data):
+        hp = self.hp
+        b = self.prepare(data)
+        d = self.dist(b["obs"], b["avail"])
+        logp = d.log_prob(b["actions"])
+        entropy = d.entropy().mean()
+        policy_loss = -(logp * b["advantages"]).mean()
+        self.clip_and_step(self.actor_opt, policy_loss - hp["ent_coef"] * entropy, self.actor.parameters(), hp["max_grad_norm"])
+        value_loss = self.critic_update(b, torch.arange(b["obs"].shape[0], device=self.device))
+        return {"policy_loss": policy_loss.item(), "value_loss": value_loss, "entropy": entropy.item()}
+
+
+class IA2C(MAA2C):
+    """Independent A2C: MAA2C with a decentralised critic V(o_i)."""
+
+    name = "ia2c"
+    critic_type = "local"
+
+
 class IPPO(MAPPO):
     """Independent PPO (de Witt et al., 2020): shared actor, decentralized critic V(o_i)."""
 
@@ -165,7 +196,7 @@ class HAPPO(MAPPO):
         x = self.agent_inputs(b["obs"])
         factor = torch.ones(N, device=self.device)
         stats = {"policy_loss": [], "value_loss": [], "entropy": []}
-        for i in torch.randperm(self.n).tolist():
+        for i in self.randperm(self.n).tolist():
             for idx in self.minibatches(N):
                 d = self.agent_dist(i, x[idx, i], b["avail"][idx, i])
                 ratio = (d.log_prob(b["actions"][idx, i]) - b["logp"][idx, i]).exp()

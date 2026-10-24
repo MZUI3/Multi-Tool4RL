@@ -1,10 +1,12 @@
-# rlzoo — RL 15종 + MARL 15종을 YAML 설정으로 구성하는 PyTorch 프로젝트
+# rlzoo — RL 40종 + MARL 20종을 YAML 설정으로 구성하는 PyTorch 프로젝트
 
-대표적인 단일 에이전트 강화학습(RL) 알고리즘 15개와 멀티에이전트 강화학습(MARL) 알고리즘 15개, 총 30개를
-**PyTorch로 직접 구현**했습니다. 외부 RL 라이브러리(SB3, RLlib, PyMARL 등)에 의존하지 않습니다.
+단일 에이전트 강화학습(RL) 알고리즘 40개(온라인·오프라인·모방·모델 기반·탐험·순환·목표 조건)와 멀티에이전트 강화학습(MARL)
+알고리즘 20개, 총 60개를 **PyTorch로 직접 구현**했습니다. 외부 RL 라이브러리(SB3, RLlib, PyMARL 등)에 의존하지 않습니다.
 알고리즘·환경·하이퍼파라미터는 모두 YAML 설정 파일 또는 커맨드라인 `--set`으로 바꿀 수 있습니다.
 
-- 필수 의존성: `torch`, `numpy`, `gymnasium`, `pyyaml`
+- 필수 의존성: `torch`, `numpy`, `gymnasium`, `pyyaml`, `matplotlib`, `pillow` (시각화)
+- 학습이 끝난 뒤 `--watch` 한 줄로 시뮬레이션을 직접 볼 수 있습니다 (아래 "시뮬레이션 시각화").
+- CV 허브(Mutli-Tool4Vision)와 **같은 하드웨어 가속 모듈**(`rlzoo/common/hwaccel.py`)을 써서 `--device`, `--parallel dp|ddp` 옵션이 동일합니다.
 - MARL 기본 환경(Spread, Predator-Prey, Matrix game)은 numpy로 내장되어 있어 추가 설치가 필요 없습니다.
 - 선택: PettingZoo(MPE 등), SMAC(StarCraft II) 어댑터 포함
 
@@ -19,7 +21,7 @@ pip install -r requirements.txt
 ## 빠른 시작
 
 ```bash
-python train.py --list                          # 30개 알고리즘 목록
+python train.py --list                          # 60개 알고리즘 목록
 python train.py --algo ppo                      # configs/rl/ppo.yaml 로 학습
 python train.py --config configs/marl/qmix.yaml # 설정 파일 직접 지정
 ```
@@ -44,16 +46,94 @@ python train.py --algo rainbow --set hparams.noisy=false hparams.n_step=1   # Ra
 
 ```bash
 python evaluate.py runs/<run_dir> --episodes 20          # 저장된 모델 평가
-python evaluate.py runs/<run_dir> --render               # gymnasium 렌더링(단일 에이전트)
+python watch.py runs/<run_dir>                           # 시뮬레이션 뷰어 (아래 참고)
 python plot.py runs/dqn_* runs/rainbow_* --metric eval/return --out compare.png
-python tests/test_smoke.py                               # 30개 전부 짧게 실행해 동작 확인
+python tests/test_smoke.py                               # 60개 전부 짧게 실행해 동작 확인
 python benchmark.py --kind rl                            # 여러 알고리즘 연속 실행 + 결과 표
 python benchmark.py --algos qmix vdn qplex --seeds 0 1 2 --env matrix_game --steps 10000
 ```
 
+## 시뮬레이션 시각화 (학습 후 직접 보기)
+
+학습이 끝난 모델이 환경에서 어떻게 움직이는지 창을 띄워 보거나, GIF / MP4 / HTML로 저장할 수 있습니다.
+
+```bash
+python train.py --algo ppo --watch                       # 학습이 끝나면 바로 뷰어 열기
+python train.py --algo qmix --watch-save qmix.html       # 학습 후 에피소드를 HTML 플레이어로 저장
+python watch.py runs/<run_dir>                           # 저장된 run 열기 (라이브 창)
+python watch.py runs/<run_dir> --save ep.gif --no-window --episodes 3
+python watch.py runs/<run_dir> --save ep.html --stochastic --fps 20
+python evaluate.py runs/<run_dir> --watch                # 평가 후 뷰어
+```
+
+- **라이브 창** (matplotlib): 왼쪽에 환경 화면, 오른쪽에 에피소드/스텝/행동/보상/리턴 HUD, 알고리즘 진단(DQN 계열은 Q값, 정책 계열은 행동 확률·가치, MARL은 에이전트×행동 Q/확률 히트맵), 에피소드 리턴 그래프.
+  키: `space` 일시정지 · `n`/`→` 한 스텝 · `r` 리셋 · `d` 결정적/확률적 토글 · `+`/`-` 속도 · `s` 스크린샷 · `q` 종료
+- **HTML 플레이어**: 파일 하나에 프레임과 진단 정보가 들어 있어 브라우저에서 재생·스크럽할 수 있습니다 (공유용).
+- **GIF**(pillow) / **MP4**(ffmpeg 필요).
+- 렌더링: 환경 자체의 `rgb_array` 렌더러를 쓰고(gymnasium classic control은 `pip install pygame` 필요), 없으면 rlzoo가 상태를 직접 그립니다
+  (CartPole, MountainCar, Pendulum, Acrobot, BitFlip, PointReach, PixelGrid, Spread, Predator-Prey, Matrix game).
+  새 환경은 `rlzoo/viz/renderers.py`의 `_BY_CLASS`에 그리기 함수를 추가하면 됩니다.
+
+## 하드웨어 가속: DP / DDP (CV 허브와 공통)
+
+`rlzoo/common/hwaccel.py`는 CV 허브의 `utils/hwaccel.py`와 **바이트 단위로 같은 파일**이며, 옵션과 동작이 동일합니다.
+YAML의 `accel:` 섹션 또는 커맨드라인 플래그로 설정합니다 (플래그가 YAML보다 우선).
+
+| 모드 | 실행 | 의미 |
+|---|---|---|
+| `none` | `python train.py --algo ppo --device cuda:0` | 단일 디바이스 (`--device auto`가 기본: CUDA 있으면 CUDA) |
+| `dp` | `python train.py --algo sac --parallel dp --gpu-ids 0,1` | 한 프로세스, `nn.DataParallel`. forward가 있는 모든 서브네트워크를 자동으로 감쌉니다 (GPU 2장 미만이면 `none`으로 내려감) |
+| `ddp` | `torchrun --nproc_per_node=N train.py --algo ppo` 또는 `python launch_ddp.py --nproc N train.py --algo ppo` | 프로세스(=rank)마다 **자기 환경**을 돌리고 매 업데이트마다 그래디언트를 평균합니다. `total_steps`·`log_interval` 등은 모든 rank의 환경 스텝 합계 기준 |
+
+```bash
+python launch_ddp.py --nproc 2 train.py --algo ppo --device cpu     # CPU + gloo 로도 동작 (테스트용)
+python launch_ddp.py --nproc 4 train.py --algo redq --set env.num_envs=4
+```
+
+- DDP에서는 rank 0만 로그·평가·저장을 하고, 학습이 끝나면 모든 rank의 파라미터가 같은지 검사해 출력합니다 (`DDP parameter sync check: OK`).
+- 환경 시드는 rank마다 다르게(`seed + 7919 * rank`), 네트워크 초기화는 같은 시드 + rank 0 브로드캐스트로 맞춥니다.
+- `a3c`는 자체적으로 비동기이므로 `ddp`를 지원하지 않습니다 (`none`/`dp`).
+- Windows용 PyTorch 휠은 libuv 없이 빌드되어 `torchrun`이 실패하는 경우가 있습니다. 그때는 `launch_ddp.py`를 쓰면 됩니다.
+
+```yaml
+accel:
+  parallel: none      # none | dp | ddp
+  device: auto        # auto | cpu | cuda | cuda:N
+  gpu_ids: null       # dp 전용, 예: [0, 1]
+  sync_bn: false
+  backend: null       # ddp: nccl (CUDA) / gloo (CPU)
+  master_addr: 127.0.0.1
+  master_port: 29500
+```
+
+## 관측 인코더와 내장 환경
+
+- `hparams.encoder: auto | mlp | nature_cnn | small_cnn | impala_cnn` — 이미지 관측(Box uint8 HxWxC)이면 `auto`가 CNN을 고릅니다. 모든 단일 에이전트 알고리즘에 적용되고 리플레이 버퍼는 uint8로 저장합니다.
+- 내장 gymnasium 환경 (추가 설치 없음):
+
+| `env.id` | 설명 | 용도 |
+|---|---|---|
+| `BitFlip-v0` | n비트 뒤집기, 목표 조건 (Dict 관측) | HER (`her_dqn`) |
+| `PointReach-v0` | 2D 점 질량을 목표 위치로, 연속 행동 | HER (`her_td3`, `her_sac`) |
+| `PixelGrid-v0` | RGB 이미지 관측의 격자 길찾기 | CNN 인코더, DRQN, PPO-RNN |
+
+## 오프라인 데이터셋
+
+오프라인 RL·모방학습(`bc`, `td3_bc`, `cql`, `iql_offline`, `awac`, `dt`, `gail`)은 설정의 `dataset` 키로 데이터를 지정합니다.
+
+```bash
+python collect.py --env CartPole-v1 --steps 20000                        # 무작위 정책 -> datasets/CartPole-v1_random.npz
+python collect.py --run runs/ppo_CartPole-v1_s0_... --steps 50000        # 학습된 정책(전문가) -> datasets/CartPole-v1_<run>.npz
+python collect.py --run runs/sac_Pendulum-v1_... --noise 0.3 --out datasets/pendulum_medium.npz
+python train.py --algo dt --set dataset=datasets/CartPole-v1_ppo_CartPole-v1_s0_....npz
+python train.py --algo gail --set dataset=runs/ppo_CartPole-v1_s0_...     # run 디렉터리를 주면 자동으로 수집
+```
+
+`dataset: auto`(기본)는 파일이 없으면 무작위 정책으로 `dataset_steps`만큼 수집합니다(동작 확인용). 실제 모방 학습에는 전문가 run을 지정하세요.
+
 ## 알고리즘
 
-### 단일 에이전트 RL (15)
+### 단일 에이전트 RL (40)
 
 | 이름 | 계열 | 기본 환경 | 논문 |
 |---|---|---|---|
@@ -72,12 +152,39 @@ python benchmark.py --algos qmix vdn qplex --seeds 0 1 2 --env matrix_game --ste
 | `ddpg` | 연속 제어 | Pendulum-v1 | Lillicrap et al., 2016 |
 | `td3` | 연속 제어 | Pendulum-v1 | Fujimoto et al., 2018 |
 | `sac` | 연속 제어 (최대 엔트로피) | Pendulum-v1 | Haarnoja et al., 2018 |
+| `noisy_dqn` | Value-based (NoisyNet 탐험) | CartPole-v1 | Fortunato et al., 2018 |
+| `m_dqn` | Value-based (Munchausen) | CartPole-v1 | Vieillard et al., 2020 |
+| `iqn` | Distributional (implicit quantile) | CartPole-v1 | Dabney et al., 2018 |
+| `drqn` | Recurrent (GRU Q-network, 에피소드 리플레이) | CartPole-v1 | Hausknecht & Stone, 2015 |
+| `ppo_rnn` | Recurrent (GRU PPO) | CartPole-v1 | Schulman et al., 2017 |
+| `sac_discrete` | Actor-critic (이산 SAC) | CartPole-v1 | Christodoulou, 2019 |
+| `tqc` | 연속 제어 (truncated quantile critics) | Pendulum-v1 | Kuznetsov et al., 2020 |
+| `redq` | 연속 제어 (critic 앙상블 10, UTD 20) | Pendulum-v1 | Chen et al., 2021 |
+| `droq` | 연속 제어 (dropout + LayerNorm critic, UTD 20) | Pendulum-v1 | Hiraoka et al., 2022 |
+| `crossq` | 연속 제어 (BatchRenorm, 타깃 네트워크 없음) | Pendulum-v1 | Bhatt et al., 2024 |
+| `ppg` | Trust region (phasic policy gradient) | CartPole-v1 | Cobbe et al., 2020 |
+| `impala` | Actor-critic (V-trace, 동기 버전) | CartPole-v1 | Espeholt et al., 2018 |
+| `rnd` | 탐험 (PPO + random network distillation) | MountainCar-v0 | Burda et al., 2019 |
+| `icm` | 탐험 (PPO + intrinsic curiosity) | MountainCar-v0 | Pathak et al., 2017 |
+| `her_dqn` | 목표 조건 (Double DQN + HER) | BitFlip-v0 | Andrychowicz et al., 2017 |
+| `her_td3` / `her_sac` | 목표 조건 (TD3 / SAC + HER) | PointReach-v0 | Andrychowicz et al., 2017 |
+| `mbpo` | 모델 기반 (앙상블 다이내믹스 + SAC) | Pendulum-v1 | Janner et al., 2019 |
+| `bc` | 오프라인 / 모방 (behaviour cloning) | CartPole-v1 | Pomerleau, 1991 |
+| `td3_bc` | 오프라인 (TD3 + BC 정규화) | Pendulum-v1 | Fujimoto & Gu, 2021 |
+| `cql` | 오프라인 (conservative Q; 이산·연속) | CartPole-v1 | Kumar et al., 2020 |
+| `iql_offline` | 오프라인 (implicit Q-learning) | CartPole-v1 | Kostrikov et al., 2022 |
+| `awac` | 오프라인 (advantage-weighted actor-critic) | CartPole-v1 | Nair et al., 2020 |
+| `dt` | 오프라인 (Decision Transformer) | CartPole-v1 | Chen et al., 2021 |
+| `gail` | 모방 (PPO + discriminator 보상) | CartPole-v1 | Ho & Ermon, 2016 |
 
 - DQN 계열(`dqn`~`rainbow`)은 하나의 구현을 공유하므로 `double`, `dueling`, `noisy`, `prioritized`, `n_step`을 어떤 조합으로든 켜고 끌 수 있습니다.
 - `reinforce`, `a2c`, `a3c`, `trpo`, `ppo`는 이산·연속 행동 공간 모두 지원합니다(`--env Pendulum-v1` 등).
-- `ddpg`, `td3`, `sac`는 연속 행동(Box) 전용, DQN 계열은 이산 행동 전용입니다.
+- `ddpg`, `td3`, `sac`, `tqc`, `redq`, `droq`, `crossq`, `mbpo`, `td3_bc`는 연속 행동(Box) 전용, DQN 계열·`drqn`·`sac_discrete`는 이산 행동 전용입니다.
+- `her: true` 하이퍼파라미터는 모든 off-policy 알고리즘에서 쓸 수 있습니다 (목표 조건 Dict 관측 환경 필요). `her_dqn`/`her_td3`/`her_sac`는 이를 켠 설정입니다.
+- `redq`, `droq`, `crossq`는 `sac`의 하이퍼파라미터 변형(`target_subset`, `actor_q`, `policy_delay`, `critic_dropout`, `critic_layer_norm`)으로 구현되어 있어 자유롭게 섞을 수 있습니다.
+- 오프라인 알고리즘의 `train.total_steps`는 환경 스텝이 아니라 그래디언트 스텝 수입니다.
 
-### 멀티에이전트 RL (15)
+### 멀티에이전트 RL (20)
 
 | 이름 | 계열 | 핵심 아이디어 | 논문 |
 |---|---|---|---|
@@ -96,6 +203,11 @@ python benchmark.py --algos qmix vdn qplex --seeds 0 1 2 --env matrix_game --ste
 | `mat` | Transformer | 인코더-디코더, 자기회귀적 행동 생성 | Wen et al., 2022 |
 | `commnet` | Communication | 은닉 상태 평균 통신 (MAPPO로 학습) | Sukhbaatar et al., 2016 |
 | `g2anet` | Communication | Hard + soft 2단계 어텐션 (MAPPO로 학습) | Liu et al., 2020 |
+| `qatten` | Value decomposition | 멀티헤드 어텐션 가중 단조 믹싱 | Yang et al., 2020 |
+| `maa2c` | Policy gradient | 중앙 critic A2C (클리핑 없음) | Papoudakis et al., 2021 |
+| `ia2c` | Policy gradient | 독립 A2C (로컬 critic) | Papoudakis et al., 2021 |
+| `masac` | Centralized critic | 이산 SAC + 에이전트별 중앙 critic | Haarnoja et al., 2018 (MA) |
+| `facmac` | Centralized critic | 분해 critic + QMIX 믹서, 중앙 정책 그래디언트 | Peng et al., 2021 |
 
 모든 MARL 알고리즘은 **협력(team reward) + 이산 행동 + CTDE** 설정을 가정합니다.
 
@@ -122,7 +234,10 @@ python train.py --algo mappo --env pz:mpe2.simple_spread_v3 --set env.kwargs.max
 ```yaml
 algo: qmix            # 알고리즘 이름 (python train.py --list)
 seed: 0
-device: auto          # auto | cpu | cuda
+device: auto          # auto | cpu | cuda  (accel.device 의 축약)
+accel:                # 하드웨어 가속 (선택, 위 "하드웨어 가속" 참고)
+  parallel: none
+dataset: auto         # 오프라인/모방 알고리즘만: auto | path.npz | runs/<run_dir>
 env:
   id: spread          # gymnasium id 또는 MARL env id
   kwargs: {n_agents: 3}
@@ -162,16 +277,24 @@ hparams:              # 알고리즘 하이퍼파라미터 (생략 시 기본값
 ## 프로젝트 구조
 
 ```
-train.py / evaluate.py / plot.py
-configs/rl/*.yaml   configs/marl/*.yaml      # 알고리즘별 기본 설정 30개
+train.py / evaluate.py / watch.py / collect.py / plot.py / benchmark.py
+launch_ddp.py        # torchrun 대체 런처
+configs/rl/*.yaml   configs/marl/*.yaml      # 알고리즘별 기본 설정 60개
 rlzoo/
   registry.py        # 알고리즘 이름 → 클래스
-  runner.py          # 설정 → 환경/알고리즘 생성, 학습, 평가, 저장
-  config.py          # YAML 로드, --set 덮어쓰기
-  common/            # Algorithm 베이스, 네트워크, 리플레이 버퍼(PER/n-step), GAE, 로거
-  envs/              # gymnasium VecEnv, MARL 환경 + PettingZoo/SMAC 어댑터
-  rl/                # dqn.py, actor_critic.py, trpo.py, ppo.py, continuous.py
-  marl/              # value_based.py, mixers.py, coma.py, maddpg.py, ppo_family.py, mat.py, networks.py
+  runner.py          # 설정 → 환경/알고리즘 생성, 학습, 평가, 저장 (Accelerator / DDP rank 처리)
+  config.py          # YAML 로드, --set 덮어쓰기, accel 기본값
+  common/
+    hwaccel.py       # 하드웨어 가속 공통 모듈 (CV 허브와 동일 파일)
+    base.py          # Algorithm 베이스 (DDP 그래디언트 동기화, explain() 진단 훅)
+    nets.py          # MLP/CNN 인코더, Q/IQN/recurrent 네트워크, actor-critic, critic 변형(BatchRenorm, quantile, dropout)
+    datasets.py      # 오프라인 데이터셋 수집/로드
+    buffers.py, utils.py, logger.py
+  envs/              # gymnasium VecEnv(이미지·목표 조건 관측), builtin.py(BitFlip/PointReach/PixelGrid), MARL 환경 + 어댑터
+  rl/                # dqn.py, actor_critic.py, trpo.py, ppo.py, continuous.py, recurrent.py, sac_discrete.py, ppg.py,
+                     # impala.py, curiosity.py, offline.py, imitation.py, mbpo.py
+  marl/              # value_based.py, mixers.py, coma.py, maddpg.py, ppo_family.py, mat.py, masac.py, networks.py
+  viz/               # renderers.py(프레임 소스 + 상태 그리기), player.py(라이브 뷰어, GIF/MP4/HTML 내보내기)
 tests/test_smoke.py
 ```
 
@@ -190,4 +313,5 @@ tests/test_smoke.py
 - G2ANet의 hard attention은 Bi-LSTM 대신 쌍(pair)별 MLP 게이트(straight-through)이며, CommNet/G2ANet은 MAPPO 방식으로 학습합니다.
 - MADDPG/MATD3는 이산 행동을 위해 Gumbel-Softmax를 쓰고, 협력 설정이므로 critic 파라미터를 에이전트 간 공유합니다(에이전트 ID 입력).
 - A3C는 Python 스레드로 구현되어 GIL의 영향을 받습니다(알고리즘 구조는 동일).
-- 기본 설정은 CPU에서 수 분 내에 돌아가도록 작게 잡았습니다. Atari·MuJoCo·SMAC 같은 큰 벤치마크에는 `total_steps`, 네트워크 크기, 병렬 환경 수를 늘려야 합니다(Atari 픽셀 입력용 CNN 인코더는 포함되어 있지 않습니다).
+- RND/ICM은 외재·내재 보상을 하나의 가치 헤드로 학습하는 단순화 버전이고, IMPALA는 비동기 액터 대신 `policy_lag`만큼 뒤처진 행동 정책을 쓰는 동기 버전입니다. MBPO는 환경 종료 함수 대신 모델 롤아웃을 비종료로 취급합니다.
+- 기본 설정은 CPU에서 수 분 내에 돌아가도록 작게 잡았습니다. Atari·MuJoCo·SMAC 같은 큰 벤치마크에는 `total_steps`, 네트워크 크기, 병렬 환경 수를 늘리고 `hparams.encoder`(nature_cnn/impala_cnn)를 지정하세요.

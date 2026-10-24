@@ -42,8 +42,8 @@ class DQN(OffPolicyAlgo):
         loss="huber",  # huber | mse (ignored by distributional variants)
     )
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         if not spec.discrete:
             raise TypeError(f"{self.name} requires a discrete action space")
         hp = self.hp
@@ -66,7 +66,8 @@ class DQN(OffPolicyAlgo):
     def build_network(self):
         hp = self.hp
         return QNetwork(self.spec.obs_dim, self.spec.n_actions, hp["hidden_sizes"], hp["activation"],
-                        dueling=hp["dueling"], noisy=hp["noisy"], n_atoms=self.n_atoms, sigma0=hp["noisy_sigma"])
+                        dueling=hp["dueling"], noisy=hp["noisy"], n_atoms=self.n_atoms, sigma0=hp["noisy_sigma"],
+                        encoder=self.make_encoder())
 
     def q_values(self, net, obs):
         return net(obs)
@@ -94,6 +95,13 @@ class DQN(OffPolicyAlgo):
     def store(self, env_idx, obs, action, reward, next_obs, terminated, done):
         for tr in self.nstep[env_idx].push(obs, action, reward, next_obs, terminated, done):
             self.buffer.add(**tr)
+
+    @torch.no_grad()
+    def explain(self, obs):
+        self.q.eval()
+        q = self.q_values(self.q, self.t(np.asarray(obs)[None]))[0].cpu().numpy()
+        self.q.train()
+        return {"q": q}
 
     # ---------------------------------------------------------------- learning
     def compute_loss(self, b):
@@ -164,11 +172,11 @@ class C51(DQN):
     name = "c51"
     default_hparams = dict(atoms=51, v_min=-10.0, v_max=10.0)
 
-    def __init__(self, spec, cfg, device, logger=None):
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
         hp = self.resolve_hparams(cfg.get("hparams") or {})
         self.support = torch.linspace(hp["v_min"], hp["v_max"], int(hp["atoms"]), device=device)
         self.delta_z = (hp["v_max"] - hp["v_min"]) / (int(hp["atoms"]) - 1)
-        super().__init__(spec, cfg, device, logger)
+        super().__init__(spec, cfg, device, logger, accel)
 
     @property
     def n_atoms(self) -> int:
@@ -240,3 +248,70 @@ class Rainbow(C51):
     name = "rainbow"
     default_hparams = dict(double=True, dueling=True, noisy=True, prioritized=True, n_step=3, per_alpha=0.5,
                            eps_start=0.0, eps_end=0.0)
+
+
+class NoisyDQN(DQN):
+    """Noisy Networks for exploration (Fortunato et al., 2018): factorised Gaussian noise replaces epsilon-greedy."""
+
+    name = "noisy_dqn"
+    default_hparams = dict(double=True, noisy=True, eps_start=0.0, eps_end=0.0)
+
+
+class MunchausenDQN(DQN):
+    """Munchausen DQN (Vieillard et al., 2020): adds the scaled log-policy of the taken action to the reward and
+    bootstraps with the soft (entropy-regularised) value of the next state."""
+
+    name = "m_dqn"
+    default_hparams = dict(double=True, m_alpha=0.9, m_tau=0.03, m_clip=-1.0)
+
+    def compute_loss(self, b):
+        hp = self.hp
+        tau, alpha, clip = hp["m_tau"], hp["m_alpha"], hp["m_clip"]
+        q = self.q(b["obs"]).gather(1, b["action"][:, None]).squeeze(1)
+        with torch.no_grad():
+            q_t = self.q_target(b["obs"])
+            log_pi = F.log_softmax(q_t / tau, -1).gather(1, b["action"][:, None]).squeeze(1)
+            munchausen = alpha * (tau * log_pi).clamp(min=clip, max=0.0)
+            q_next = self.q_target(b["next_obs"])
+            pi_next, log_pi_next = F.softmax(q_next / tau, -1), F.log_softmax(q_next / tau, -1)
+            soft_v = (pi_next * (q_next - tau * log_pi_next)).sum(-1)
+            target = b["reward"] + munchausen + b["discount"] * (1 - b["done"]) * soft_v
+        loss = F.smooth_l1_loss(q, target, reduction="none") if hp["loss"] != "mse" else F.mse_loss(q, target, reduction="none")
+        return loss, (target - q).abs().detach()
+
+
+class IQN(DQN):
+    """Implicit Quantile Networks (Dabney et al., 2018): the network takes sampled quantile fractions tau as an
+    extra input and is trained with the quantile Huber loss between N online and N' target quantiles."""
+
+    name = "iqn"
+    default_hparams = dict(double=True, n_taus=8, n_target_taus=8, n_policy_taus=32, n_cos=64, kappa=1.0)
+
+    def build_network(self):
+        from rlzoo.common.nets import IQNNetwork
+
+        hp = self.hp
+        return IQNNetwork(self.spec.obs_dim, self.spec.n_actions, hp["hidden_sizes"], hp["activation"],
+                          dueling=hp["dueling"], noisy=hp["noisy"], n_cos=int(hp["n_cos"]), sigma0=hp["noisy_sigma"],
+                          encoder=self.make_encoder())
+
+    def q_values(self, net, obs):
+        taus = torch.rand(obs.shape[0], int(self.hp["n_policy_taus"]), device=self.device)
+        return net(obs, taus).mean(1)
+
+    def compute_loss(self, b):
+        hp = self.hp
+        B, N, Nt, kappa = b["obs"].shape[0], int(hp["n_taus"]), int(hp["n_target_taus"]), hp["kappa"]
+        rng = torch.arange(B, device=self.device)
+        taus = torch.rand(B, N, device=self.device)
+        quantiles = self.q(b["obs"], taus)[rng, :, b["action"]]  # (B, N)
+        with torch.no_grad():
+            next_a = self.q_values(self.q if hp["double"] else self.q_target, b["next_obs"]).argmax(1)
+            taus_t = torch.rand(B, Nt, device=self.device)
+            next_q = self.q_target(b["next_obs"], taus_t)[rng, :, next_a]  # (B, Nt)
+            target = b["reward"][:, None] + (b["discount"] * (1 - b["done"]))[:, None] * next_q
+        td = target[:, None, :] - quantiles[:, :, None]  # (B, N, Nt)
+        huber = torch.where(td.abs() <= kappa, 0.5 * td.pow(2), kappa * (td.abs() - 0.5 * kappa))
+        weight = (taus[:, :, None] - (td.detach() < 0).float()).abs()
+        loss = (weight * huber / kappa).mean(2).sum(1)
+        return loss, loss.detach()

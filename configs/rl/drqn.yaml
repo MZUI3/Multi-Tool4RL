@@ -1,0 +1,18 @@
+# DRQN (Hausknecht & Stone, 2015) - GRU Q-network trained on episode windows
+algo: drqn
+seed: 0
+env:
+  id: CartPole-v1
+train:
+  total_steps: 50000
+  eval_interval: 10000
+hparams:
+  lr: 1.0e-3
+  buffer_episodes: 500
+  seq_len: 16
+  rnn_hidden: 64
+  batch_size: 32
+  learning_starts: 500
+  target_update_interval: 500
+  eps_decay_steps: 10000
+  hidden_sizes: [64]

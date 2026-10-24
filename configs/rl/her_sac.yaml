@@ -1,0 +1,16 @@
+# SAC + Hindsight Experience Replay on a continuous goal-reaching task
+algo: her_sac
+seed: 0
+env:
+  id: PointReach-v0
+train:
+  total_steps: 30000
+  eval_interval: 5000
+  eval_episodes: 20
+hparams:
+  her: true
+  her_k: 4
+  batch_size: 256
+  learning_starts: 1000
+  random_steps: 1000
+  hidden_sizes: [256, 256]

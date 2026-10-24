@@ -34,6 +34,34 @@ class QMixer(nn.Module):
         return (torch.bmm(hidden, w2) + b2).view(B)
 
 
+class QattenMixer(nn.Module):
+    """Qatten (Yang et al., 2020): multi-head attention over the agents' Q-values.
+
+    Q_tot = sum_h lambda_h(s) sum_i alpha_{h,i} Q_i + V(s), with alpha_h = softmax_i(q_h(s) . k_h(o_i)) and
+    lambda_h(s) >= 0 (abs of a hypernetwork output), so Q_tot stays monotonic in every Q_i.
+    """
+
+    def __init__(self, n_agents, state_dim, obs_dim, n_heads=4, embed_dim=32, hypernet_embed=64):
+        super().__init__()
+        self.n, self.H, self.embed = n_agents, n_heads, embed_dim
+        self.query = nn.ModuleList([nn.Sequential(nn.Linear(state_dim, hypernet_embed), nn.ReLU(),
+                                                  nn.Linear(hypernet_embed, embed_dim)) for _ in range(n_heads)])
+        self.key = nn.ModuleList([nn.Linear(obs_dim, embed_dim) for _ in range(n_heads)])
+        self.lam = nn.Sequential(nn.Linear(state_dim, hypernet_embed), nn.ReLU(), nn.Linear(hypernet_embed, n_heads))
+        self.v = nn.Sequential(nn.Linear(state_dim, hypernet_embed), nn.ReLU(), nn.Linear(hypernet_embed, 1))
+
+    def forward(self, qs, state, obs=None, **_):
+        B = qs.shape[0]
+        lam = self.lam(state).abs()  # (B, H)
+        out = 0.0
+        for h in range(self.H):
+            q = self.query[h](state).view(B, 1, self.embed)
+            k = self.key[h](obs)  # (B, n, embed)
+            alpha = F.softmax((k * q).sum(-1) / self.embed ** 0.5, -1)  # (B, n)
+            out = out + lam[:, h] * (alpha * qs).sum(-1)
+        return out + self.v(state).squeeze(-1)
+
+
 class QPLEXMixer(nn.Module):
     """Duplex dueling mixer (Wang et al., 2021).
 

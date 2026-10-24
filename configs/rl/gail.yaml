@@ -1,0 +1,21 @@
+# GAIL (Ho & Ermon, 2016) - PPO with a discriminator reward; point `dataset` at an expert run for real imitation
+algo: gail
+seed: 0
+env:
+  id: CartPole-v1
+  num_envs: 8
+dataset: auto           # replace with runs/<expert_run_dir> (or an .npz recorded with collect.py --run ...)
+dataset_steps: 20000
+train:
+  total_steps: 100000
+  eval_interval: 20000
+hparams:
+  lr: 3.0e-4
+  n_steps: 128
+  n_epochs: 4
+  n_minibatches: 4
+  disc_lr: 3.0e-4
+  disc_epochs: 2
+  env_reward_coef: 0.0
+  hidden_sizes: [64, 64]
+  activation: tanh

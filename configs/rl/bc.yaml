@@ -1,0 +1,15 @@
+# Behaviour cloning from an offline dataset (dataset: auto -> random policy; give a run dir for an expert)
+algo: bc
+seed: 0
+env:
+  id: CartPole-v1
+dataset: auto          # path.npz | auto | runs/<expert_run_dir>
+dataset_steps: 20000   # only used when the dataset is recorded on the fly
+train:
+  total_steps: 5000    # gradient steps
+  log_interval: 500
+  eval_interval: 1000
+hparams:
+  batch_size: 256
+  lr: 3.0e-4
+  hidden_sizes: [256, 256]

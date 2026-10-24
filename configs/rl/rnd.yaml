@@ -1,0 +1,21 @@
+# PPO + Random Network Distillation bonus (Burda et al., 2019)
+algo: rnd
+seed: 0
+env:
+  id: MountainCar-v0
+  num_envs: 8
+train:
+  total_steps: 200000
+  eval_interval: 20000
+hparams:
+  lr: 3.0e-4
+  n_steps: 128
+  n_epochs: 4
+  n_minibatches: 4
+  int_coef: 1.0
+  ext_coef: 1.0
+  aux_lr: 1.0e-4
+  rnd_hidden: [64, 64]
+  rnd_dim: 64
+  hidden_sizes: [64, 64]
+  activation: tanh

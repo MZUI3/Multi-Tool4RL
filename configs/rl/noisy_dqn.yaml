@@ -1,0 +1,16 @@
+# Noisy DQN (Fortunato et al., 2018) - exploration through parametric noise instead of epsilon-greedy
+algo: noisy_dqn
+seed: 0
+env:
+  id: CartPole-v1
+train:
+  total_steps: 50000
+  eval_interval: 10000
+hparams:
+  lr: 1.0e-3
+  buffer_size: 50000
+  batch_size: 64
+  learning_starts: 1000
+  target_update_interval: 500
+  noisy_sigma: 0.5
+  hidden_sizes: [128, 128]

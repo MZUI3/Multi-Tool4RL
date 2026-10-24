@@ -1,0 +1,23 @@
+# Double DQN + Hindsight Experience Replay (Andrychowicz et al., 2017) on the bit-flipping task
+algo: her_dqn
+seed: 0
+env:
+  id: BitFlip-v0
+  kwargs:
+    n_bits: 12
+train:
+  total_steps: 40000
+  eval_interval: 5000
+  eval_episodes: 20
+hparams:
+  her: true
+  her_k: 4
+  her_strategy: future
+  lr: 1.0e-3
+  buffer_size: 100000
+  batch_size: 128
+  learning_starts: 500
+  eps_decay_steps: 10000
+  eps_end: 0.1
+  target_update_interval: 200
+  hidden_sizes: [256, 256]

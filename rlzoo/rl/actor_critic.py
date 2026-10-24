@@ -18,8 +18,8 @@ class REINFORCE(OnPolicyAlgo):
     name = "reinforce"
     default_hparams = dict(lr=1e-3, episodes_per_update=4, use_baseline=True, max_grad_norm=0.0)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         self.opt = torch.optim.Adam(self.ac.parameters(), lr=self.hp["lr"])
 
     def train(self, venv, total_steps):
@@ -36,9 +36,9 @@ class REINFORCE(OnPolicyAlgo):
                     completed.append(trajs[i])
                     trajs[i] = []
             obs = next_obs
-            self.global_step += venv.num_envs
+            self.global_step += venv.num_envs * self.step_scale
             self.record_episodes(info["episodes"])
-            if len(completed) >= self.hp["episodes_per_update"]:
+            if self.agree(len(completed) >= self.hp["episodes_per_update"]):
                 self.train_metrics = self.update_episodes(completed, gamma)
                 completed = []
                 if any(trajs):  # drop partial (now off-policy) episodes to stay on-policy
@@ -81,8 +81,8 @@ class A2C(OnPolicyAlgo):
     default_hparams = dict(lr=7e-4, n_steps=5, gae_lambda=1.0, ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5,
                            normalize_advantage=False, rms_alpha=0.99, rms_eps=1e-5)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         hp = self.hp
         self.opt = torch.optim.RMSprop(self.ac.parameters(), lr=hp["lr"], alpha=hp["rms_alpha"], eps=hp["rms_eps"])
 
@@ -100,11 +100,12 @@ class A3C(OnPolicyAlgo):
     """
 
     name = "a3c"
+    supports_ddp = False  # workers are already asynchronous; use dp or none
     default_hparams = dict(lr=7e-4, n_workers=4, n_steps=5, gae_lambda=1.0, ent_coef=0.01, vf_coef=0.5,
                            max_grad_norm=40.0, normalize_advantage=False)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         self.opt = torch.optim.Adam(self.ac.parameters(), lr=self.hp["lr"])
         self.lock = threading.Lock()
         self._stop = False
@@ -140,7 +141,7 @@ class A3C(OnPolicyAlgo):
                     for gp, lp in zip(self.ac.parameters(), local.parameters()):
                         gp.grad = None if lp.grad is None else lp.grad.clone()
                     self.opt.step()
-                    self.global_step += int(self.hp["n_steps"])
+                    self.global_step += int(self.hp["n_steps"]) * self.step_scale
                     self.record_episodes(episodes)
                     self.train_metrics = metrics
                     self.maybe_log()

@@ -1,0 +1,19 @@
+# MAA2C - multi-agent A2C with a centralized critic
+algo: maa2c
+seed: 0
+env:
+  id: spread
+  kwargs:
+    n_agents: 3
+  num_envs: 8
+train:
+  total_steps: 200000
+  log_interval: 5000
+  eval_interval: 25000
+  eval_episodes: 10
+hparams:
+  lr: 5.0e-4
+  critic_lr: 5.0e-4
+  n_steps: 10
+  ent_coef: 0.01
+  hidden_sizes: [64, 64]

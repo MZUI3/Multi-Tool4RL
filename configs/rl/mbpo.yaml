@@ -1,0 +1,21 @@
+# MBPO (Janner et al., 2019) - SAC on real + ensemble-model rollouts
+algo: mbpo
+seed: 0
+env:
+  id: Pendulum-v1
+train:
+  total_steps: 15000
+  eval_interval: 5000
+hparams:
+  n_models: 5
+  model_hidden: [200, 200, 200]
+  model_train_freq: 250
+  model_epochs: 5
+  rollout_length: 1
+  rollout_batch: 400
+  real_ratio: 0.05
+  gradient_steps: 10
+  batch_size: 256
+  learning_starts: 1000
+  random_steps: 1000
+  hidden_sizes: [256, 256]

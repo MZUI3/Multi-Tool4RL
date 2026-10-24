@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from rlzoo.common.nets import mlp
 from rlzoo.common.utils import linear_schedule, masked_logits, sample_available, update_target
 from rlzoo.marl.base import MAOffPolicyAlgo
-from rlzoo.marl.mixers import QMixer, QPLEXMixer, VDNMixer
+from rlzoo.marl.mixers import QMixer, QPLEXMixer, QattenMixer, VDNMixer
 
 
 class IQL(MAOffPolicyAlgo):
@@ -25,8 +25,8 @@ class IQL(MAOffPolicyAlgo):
                            eps_decay_steps=20_000, double_q=True, max_grad_norm=10.0,
                            reward_scale=1.0)  # multiply team rewards (keeps Q magnitudes moderate)
 
-    def __init__(self, spec, cfg, device, logger=None):
-        super().__init__(spec, cfg, device, logger)
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
+        super().__init__(spec, cfg, device, logger, accel)
         hp = self.hp
         self.agent = mlp(self.obs_dim, self.A, hp["hidden_sizes"], hp["activation"]).to(device)
         self.mixer = self.build_mixer()
@@ -75,12 +75,17 @@ class IQL(MAOffPolicyAlgo):
             greedy = torch.where(explore, sample_available(avail_t), greedy)
         return greedy.cpu().numpy()
 
+    @torch.no_grad()
+    def explain(self, obs, state, avail):
+        q = masked_logits(self.q_all(self.agent, self.t(obs[None])), self.t(avail[None]))[0]
+        return {"q": q.cpu().numpy()}
+
     # ---------------------------------------------------------------- learning
-    def mix(self, mixer, qs, state, actions, q_all_masked):
+    def mix(self, mixer, qs, state, actions, q_all_masked, obs=None):
         if mixer is None:
             return qs
         return mixer(qs, state, actions_onehot=F.one_hot(actions, self.A).float(),
-                     max_qs=q_all_masked.max(-1).values)
+                     max_qs=q_all_masked.max(-1).values, obs=obs)
 
     def next_greedy(self, b):
         """Greedy next actions (double-Q: from the online agent) and target Q-values (B, n, A)."""
@@ -108,8 +113,8 @@ class IQL(MAOffPolicyAlgo):
         next_a, target_q = self.next_greedy(b)
         with torch.no_grad():
             target_chosen = target_q.gather(-1, next_a[..., None]).squeeze(-1)
-            y = self.td_target(b, self.mix(self.target_mixer, target_chosen, b["next_state"], next_a, target_q))
-        q_tot = self.mix(self.mixer, chosen, b["state"], b["actions"], masked_logits(q, b["avail"]))
+            y = self.td_target(b, self.mix(self.target_mixer, target_chosen, b["next_state"], next_a, target_q, b["next_obs"]))
+        q_tot = self.mix(self.mixer, chosen, b["state"], b["actions"], masked_logits(q, b["avail"]), b["obs"])
         loss = F.mse_loss(q_tot, y)
         return loss, {"loss": loss.item(), "q_taken": q_tot.mean().item()}
 
@@ -155,6 +160,18 @@ class QPLEX(IQL):
         return QPLEXMixer(self.n, self.state_dim, self.A, self.hp["hypernet_embed"], self.hp["attention_heads"])
 
 
+class Qatten(IQL):
+    """Qatten (Yang et al., 2020): attention-weighted monotonic mixing (see QattenMixer)."""
+
+    name = "qatten"
+    default_hparams = dict(attention_heads=4, mixer_embed_dim=32, hypernet_embed=64, batch_size=256, train_freq=10)
+
+    def build_mixer(self):
+        hp = self.hp
+        return QattenMixer(self.n, self.state_dim, self.spec.obs_dim, hp["attention_heads"], hp["mixer_embed_dim"],
+                           hp["hypernet_embed"])
+
+
 class QTRAN(IQL):
     """QTRAN-base (Son et al., 2019).
 
@@ -165,13 +182,13 @@ class QTRAN(IQL):
     name = "qtran"
     default_hparams = dict(joint_hidden=[64, 64], opt_loss_coef=1.0, nopt_min_loss_coef=0.1)
 
-    def __init__(self, spec, cfg, device, logger=None):
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
         hp = self.resolve_hparams(cfg.get("hparams") or {})
         self.q_joint = mlp(spec.state_dim + spec.n_agents * spec.n_actions, 1, hp["joint_hidden"],
                            hp["activation"]).to(device)
         self.v_joint = mlp(spec.state_dim, 1, hp["joint_hidden"], hp["activation"]).to(device)
         self.target_q_joint = copy.deepcopy(self.q_joint)
-        super().__init__(spec, cfg, device, logger)
+        super().__init__(spec, cfg, device, logger, accel)
 
     def trainable(self):
         return [(self.agent, self.target_agent), (self.q_joint, self.target_q_joint), (self.v_joint, None)]
@@ -215,14 +232,14 @@ class WQMIX(QMIX):
     default_hparams = dict(weighting="ow", w_alpha=0.1, central_mixer_hidden=[128, 128], central_loss_coef=1.0,
                            batch_size=64, train_freq=1)
 
-    def __init__(self, spec, cfg, device, logger=None):
+    def __init__(self, spec, cfg, device, logger=None, accel=None):
         hp = self.resolve_hparams(cfg.get("hparams") or {})
         n_in = spec.obs_dim + (spec.n_agents if hp["agent_id"] else 0)
         self.central_agent = mlp(n_in, spec.n_actions, hp["hidden_sizes"], hp["activation"]).to(device)
         self.central_mixer = mlp(spec.n_agents + spec.state_dim, 1, hp["central_mixer_hidden"], "relu").to(device)
         self.target_central_agent = copy.deepcopy(self.central_agent)
         self.target_central_mixer = copy.deepcopy(self.central_mixer)
-        super().__init__(spec, cfg, device, logger)
+        super().__init__(spec, cfg, device, logger, accel)
 
     def trainable(self):
         return super().trainable() + [(self.central_agent, self.target_central_agent),
