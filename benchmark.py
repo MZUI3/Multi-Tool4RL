@@ -1,6 +1,6 @@
 """Run several algorithms back to back and print a summary table.
 
-  python benchmark.py --kind rl                                   # all 15 RL algos, default configs
+  python benchmark.py --kind rl                                   # every RL algorithm, default configs
   python benchmark.py --algos qmix vdn qplex --env matrix_game --steps 10000
   python benchmark.py --kind marl --seeds 0 1 2 --set train.eval_interval=0
 """
@@ -30,9 +30,9 @@ def main() -> None:
     p.add_argument("--quiet", action="store_true", help="hide per-run training logs")
     args = p.parse_args()
 
-    names = args.algos or [a.name for a in list_algorithms(args.kind)]
-    if not names:
+    if not args.kind and not args.algos:
         p.error("give --kind or --algos")
+    names = args.algos or [a.name for a in list_algorithms(args.kind)]
     stamp = time.strftime("%Y%m%d-%H%M%S")
     rows = []
     for name in names:
