@@ -1,5 +1,7 @@
 # rlzoo
 
+English | [한국어](README.ko.md)
+
 rlzoo is a set of 60 reinforcement learning algorithms in PyTorch (40 single-agent, 20 multi-agent), all trained from YAML configs by one script. It does not depend on another RL library such as Stable-Baselines3, RLlib or PyMARL: replay buffers, vector environments, the built-in environments and the viewer are part of this repository.
 
 ## Installation
