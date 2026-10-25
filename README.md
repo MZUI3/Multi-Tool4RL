@@ -15,7 +15,7 @@ bash setup.sh                         # conda env "rlzoo" if conda is found, oth
 ## Quick start
 
 ```bash
-git clone https://github.com/MZUI3/Mutli-Tool4RL.git && cd Mutli-Tool4RL
+git clone https://github.com/MZUI3/Multi-Tool4RL.git && cd Multi-Tool4RL
 pip install -r requirements.txt
 python train.py --list                                   # algorithms with family and paper reference
 python train.py --algo ppo --run-dir runs/ppo_cartpole   # configs/rl/ppo.yaml: PPO on CartPole-v1
