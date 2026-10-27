@@ -273,7 +273,7 @@ class Accelerator:
             self._init_process_group()
         self.device = self._resolve_device()
         if self.device.type == "cuda":
-            torch.cuda.set_device(self.device)
+            self._activate_cuda()
         if mode == "dp" and (self.device.type != "cuda" or len(self.gpu_ids) < 2):
             self.notes.append(f"--parallel dp needs >= 2 CUDA devices ({_visible_gpus()} visible); running on {self.device}")
             self.parallel = "none"
@@ -312,14 +312,41 @@ class Accelerator:
             if name.startswith("cuda") and not cuda_ok:
                 self.notes.append(f"--device {name} requested but CUDA is not available; using cpu")
             return torch.device("cpu")
+        visible = _visible_gpus()
         if self.parallel == "ddp":
-            return torch.device(f"cuda:{self.local_rank % max(1, _visible_gpus())}")
+            return torch.device(f"cuda:{self.local_rank % max(1, visible)}")
         if self.parallel == "dp":
             ids = self.gpu_ids
-            return torch.device(f"cuda:{ids[0]}") if ids else torch.device("cuda")
+            return torch.device(f"cuda:{ids[0] if ids else 0}")
         if name == "auto":
-            return torch.device("cuda")
-        return torch.device(name)
+            return torch.device("cuda:0")
+        try:
+            device = torch.device(name)
+        except RuntimeError:
+            self.notes.append(f"--device {name} is not a valid device; using cuda:0")
+            return torch.device("cuda:0")
+        if device.type != "cuda":
+            return device
+        # torch.cuda.set_device needs an index, and the index must exist
+        index = 0 if device.index is None else device.index
+        if index >= visible:
+            self.notes.append(f"--device {name} does not exist ({visible} visible); using cuda:0")
+            index = 0
+        return torch.device(f"cuda:{index}")
+
+    def _activate_cuda(self) -> None:
+        """Select ``self.device`` and run one tiny kernel on it, so a broken CUDA setup (for example a
+        PyTorch build without kernels for this GPU) fails here with a clear message instead of mid-training.
+        Outside DDP the run falls back to the CPU; under DDP every rank must agree, so it raises."""
+        try:
+            torch.cuda.set_device(self.device)
+            (torch.ones(1, device=self.device) + 1).item()
+        except (RuntimeError, ValueError, AssertionError) as exc:
+            msg = f"CUDA device {self.device} is not usable ({type(exc).__name__}: {str(exc).splitlines()[0]})"
+            if self.parallel == "ddp":
+                raise RuntimeError(msg) from exc
+            self.notes.append(f"{msg}; using cpu. Check that the PyTorch CUDA build supports this GPU")
+            self.device = torch.device("cpu")
 
     # ---------------------------------------------------------------- properties
     @property
